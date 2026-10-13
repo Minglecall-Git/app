@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   Minglecall V2 — hybrid live-dating tokens
+   ========================================================================= */
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-ticker: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand: #FF3366;
+  --color-brand-hover: #FF6584;
+  --color-brand-muted: #FF336633;
+  --color-brand-soft: #FF33661A;
+  --color-accent-warm: #FF8A00;
+  --color-online: #10B981;
+
+  --color-app-bg: var(--app-bg);
+  --color-app-surface: var(--app-surface);
+  --color-app-card: var(--app-card);
+  --color-app-card-subtle: var(--app-card-subtle);
+  --color-app-input: var(--app-input);
+  --color-app-border: var(--app-border);
+  --color-app-text: var(--app-text);
+  --color-app-text-muted: var(--app-text-muted);
+  --color-app-heading: var(--app-heading);
+
+  --radius-app: 1rem;
+  --radius-app-lg: 1.25rem;
+  --radius-app-xl: 1.5rem;
+
+  --shadow-app-sm: 0 2px 8px rgba(0, 0, 0, 0.22);
+  --shadow-app: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-app-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --shadow-brand: 0 8px 24px rgba(255, 51, 102, 0.4);
+}
+
+:root {
+  --app-bg: #09090C;
+  --app-surface: #12131A;
+  --app-card: #181A24;
+  --app-card-subtle: #0E0F14;
+  --app-input: #0B0C10;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-text: #E4E4EC;
+  --app-text-muted: #8B8B9A;
+  --app-heading: #FFFFFF;
+  --app-overlay: rgba(9, 9, 12, 0.72);
+  --app-nav-bg: rgba(9, 9, 12, 0.8);
+  --app-chrome-bg: rgba(9, 9, 12, 0.85);
+  --app-hairline: rgba(255, 255, 255, 0.08);
+  --app-glass-bg: rgba(255, 255, 255, 0.1);
+  --app-glass-border: rgba(255, 255, 255, 0.15);
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --brand: #FF3366;
+  --brand-hover: #FF6584;
+  --brand-muted: rgba(255, 51, 102, 0.22);
+  --brand-soft: rgba(255, 51, 102, 0.12);
+  --accent-warm: #FF8A00;
+  --coin-start: #FFB800;
+  --coin-end: #FF8A00;
+  --online: #10B981;
+  --gradient-flirt: linear-gradient(135deg, #FF3366 0%, #FF6584 100%);
+  --gradient-coin: linear-gradient(135deg, #FFB800 0%, #FF8A00 100%);
+  --radius-sm: 0.625rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
+  --elev-sm: 0 2px 8px rgba(0, 0, 0, 0.22);
+  --elev-md: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --elev-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --elev-brand: 0 8px 24px rgba(255, 51, 102, 0.4);
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-ticker {
+  font-family: var(--font-ticker);
+}
+
+/* Token utility helpers */
+.bg-app { background-color: var(--app-bg); }
+.bg-app-surface { background-color: var(--app-surface); }
+.bg-app-card { background-color: var(--app-card); }
+.bg-app-card-subtle { background-color: var(--app-card-subtle); }
+.bg-app-input { background-color: var(--app-input); }
+.bg-brand { background-color: var(--brand); }
+.bg-brand-soft { background-color: var(--brand-soft); }
+.bg-brand-muted { background-color: var(--brand-muted); }
+.bg-flirt { background-image: var(--gradient-flirt); }
+.bg-coin { background-image: var(--gradient-coin); }
+.text-app { color: var(--app-text); }
+.text-app-muted { color: var(--app-text-muted); }
+.text-app-heading { color: var(--app-heading); }
+.text-brand { color: var(--brand); }
+.text-online { color: var(--online); }
+.border-app { border-color: var(--app-border); }
+.border-brand { border-color: var(--brand); }
+.border-hairline { border-color: var(--app-hairline); }
+.bg-chrome { background-color: var(--app-chrome-bg); }
+.shadow-app { box-shadow: var(--elev-md); }
+.shadow-app-sm { box-shadow: var(--elev-sm); }
+.shadow-app-lg { box-shadow: var(--elev-lg); }
+.shadow-brand { box-shadow: var(--elev-brand); }
+.rounded-app { border-radius: var(--radius-md); }
+.rounded-app-lg { border-radius: var(--radius-lg); }
+.rounded-app-xl { border-radius: var(--radius-xl); }
+
+.glass-pill {
+  background: var(--app-glass-bg);
+  border: 1px solid var(--app-glass-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* White-on-media helpers (photo overlays / CTAs) */
+.text-on-media { color: #ffffff; }
+.text-on-media-muted { color: rgba(255, 255, 255, 0.85); }
+
+.selection-brand ::selection,
+.selection-brand::selection {
+  background-color: var(--brand);
+  color: #fff;
+}
+
+@keyframes appFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes appScaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes appSheetUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes onlinePing {
+  0% { transform: scale(1); opacity: 0.55; }
+  70% { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.app-fade-up { animation: appFadeUp 0.35s ease-out both; }
+.app-scale-in { animation: appScaleIn 0.28s ease-out both; }
+.app-sheet-up { animation: appSheetUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.online-dot {
+  position: relative;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--online);
+}
+
+.online-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--online);
+  animation: onlinePing 1.6s ease-out infinite;
+}
+
+/* Discovery MediaCard: desktop aspect via CSS var (set inline on the node) */
+@media (min-width: 640px) {
+  .mc-aspect-responsive {
+    aspect-ratio: var(--mc-aspect-sm, 3 / 4) !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--app-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--app-scrollbar-thumb);
+  border-radius: 3px;
+}
+
+input[type="date"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.8) sepia(1) saturate(5) hue-rotate(300deg);
+  opacity: 0.9;
+  padding: 4px;
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-120px) scale(1.25);
+  }
+}

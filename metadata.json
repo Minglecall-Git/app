@@ -1,0 +1,6 @@
+{
+  "name": "LiveCall Dating & Monetization Ecosystem",
+  "description": "Full-featured video calling, coin economy, female creator earnings, discovery grid, auto-translated chat, and admin control platform.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

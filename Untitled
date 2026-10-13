@@ -1,0 +1,1 @@
+Set-Content -Path .gitignore -Value "node_modules/`n.env`n.env.local`ndist/`nbuild/`n.next/`n.DS_Store"

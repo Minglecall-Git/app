@@ -1,0 +1,208 @@
+*** OUTDATED SNAPSHOT (pre–Next.js cutover) ***
+This report describes an older dual path: Vite SPA + Express `npm run dev` vs early Next routes.
+Current host: Next.js App Router only (`npm run dev` = next dev; Vercel = next build).
+API: app/api/[[...path]]/route.ts. Presence: Redis REST. See architecture_engineering_rules.md
+and connection_pooling_and_env.md for the live rules. Re-run k6 against staging before trusting numbers below.
+
+---
+
+All six scripts are in k6/ and k6 inspect accepts them on k6 v2.2.0. They are not safe to run as written: local .env uses the hosted Supabase project documented as production, Redis is unset, and several checks treat failures as success.
+
+No tests were executed and nothing was sent to minglecall.com.
+
+Files
+Script	Present	k6 v2.2.0 parse
+k6/presence_heartbeat.js
+Yes
+Pass
+k6/auth_profile_burst.js
+Yes
+Pass
+k6/chat_send.js
+Yes
+Pass
+k6/reconnect_storm.js
+Yes
+Pass
+k6/billing_burn.js
+Yes
+Pass
+k6/billing_gift.js
+Yes
+Pass
+k6 inspect compiled every script, including the optional catch in the presence script. Imports (k6/http, check, sleep, Rate), executors (constant-vus, constant-arrival-rate, ramping-vus), gracefulRampDown, __ENV / __VU / __ITER, and the threshold syntax are valid. Defaults from inspect, with no env overrides:
+
+Presence: 1000 VUs for 2 minutes
+Auth burst: 500 requests/second for 1 minute
+Chat: 50 VUs for 1 minute
+Reconnect: ramp to 5000 VUs
+Burn: 1000 VUs, 1000 shared iterations
+Gift: 200 VUs, 200 shared iterations, no thresholds
+k6 only fails the process on thresholds. A check() can be 0% and the run still exits 0 unless that check feeds a threshold.
+
+Database and environment
+There is one env file that the app loads: .env. There is no .env.local, .env.development, or .env.production. server.ts calls dotenv.config(), and Next reads the same file.
+
+VITE_SUPABASE_URL is a hosted *.supabase.co project. VITE_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are set. SUPABASE_URL, NEXT_PUBLIC_SUPABASE_URL, DATABASE_URL, and any local Postgres URL are absent. .env.example is labeled as the Vercel production setup for minglecall.com and names this same hosted project (“must match .env”). Local npm run dev and npm run dev:next therefore talk to that production database. There is no separate development database.
+
+Redis is off. UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are absent, so isRedisConfigured() is false. Routine heartbeats then write profiles.online_status, last_seen_at, and updated_at. The architecture rule (Redis only on the hot path) is not met by this env.
+
+.env.example also contains live server credentials (service role, LiveKit, R2, SMTP), not placeholders. Values are omitted here.
+
+Script env vars:
+
+Variable	Used by	Required for a meaningful run
+BASE_URL
+All
+Defaults to http://localhost:3000
+TOKEN
+All except health
+Supabase access JWT. requireAuth calls auth.getUser(token)
+VUS, DURATION, RPS, PEAK
+Load shape
+Defaults are the acceptance targets, not a local smoke test
+RECEIVER_ID
+Chat, gift
+Profile id of the other user
+CALL_ID, BILLING_MINUTE
+Burn
+Real call_logs.id; minute defaults to 1
+GIFT_ID, IDEMPOTENCY_KEY
+Gift
+Defaults rose and gift:k6:shared:1
+npm run dev is Express on port 3000. npm run dev:next is the Next app, also port 3000. The scripts assume the Next/Vercel handlers. Express uses the same paths and a different status-code and billing contract.
+
+What each script actually does
+Presence — POST /api/presence/heartbeat with { status: 'online', peerIds: [] } matches both the Next route and the Express route. Auth is Authorization: Bearer <jwt>. The check treats 200 and 401 as success, and that result is the only failure threshold (presence_fail_rate < 5%). A missing or bad token still passes. It never asserts redis: true. With Redis unset, each tick updates profiles on the production project. Default load is 1000 VUs, not the 10k target (that target is only reached if you set VUS=10000).
+
+Auth/profile burst — GET /api/health only. Health is public and does not read a profile or auth session. Express returns 200 { mode: 'express' }. Next returns 200 { runtime: 'next', redis }. The check accepts 200 or 501. 501 is the catch-all “standalone route” response, which this path does not return. There is no error-rate threshold, so a fast 500 still satisfies p(95)<300 only when status stays under the latency cap; failed checks alone do not fail the run. This does not exercise the 500–1000 RPS auth/profile target.
+
+Chat — POST /api/messages with { receiverId, text, clientTempId } matches the body both servers read. clientTempId is echoed back. It is not an idempotency key, so every accepted call inserts a new messages row. Next returns 200. Express returns 201 on success, 404 if the receiver is missing, and 400 for an empty or self-receiver. The check allows only 200 and 429, so a successful Express send fails the check, and the run can still exit 0 on latency alone. Next rate-limits at 60/minute per user only when Redis is configured. Redis is unset, so Next inserts every message. Express’s global limiter is 600 requests/minute per IP and still inserts until that cap. Missing TOKEN or RECEIVER_ID sleeps and returns without sending, which leaves http_req_duration with no samples. k6 then treats that threshold as passed.
+
+Reconnect storm — GET /api/health plus the same heartbeat, with durable: false. That flag only skips Postgres when Redis is configured. Here it still writes profiles. It does not drop sockets, expire Redis keys, or restore call state. The threshold is http_req_failed < 10%. k6 counts status 0 or ≥ 400 as failed, so a 401 heartbeat fails this one. The default peak is 5000 VUs. Express will also hit the 600/minute global API cap and return 429s.
+
+Billing burn — POST /api/calls/burn with { callId, billingMinute } is the right body, and both servers reject client coin amounts. They then diverge:
+
+Next loads call_logs and calls burn_call_coins_atomic. The JWT user must be caller_id. Status must be active, accepted, or in_call. A real match debits the wallet (about 120 coins/minute, 80 for friends) and writes wallet_ledger (CALL_DEBIT) plus host/TL rows. The unique index is (call_id, billing_minute, transaction_type, user_id). Insufficient balance is 402, unknown call is 404, inactive call is 409.
+Express bills only an in-memory activeCalls entry with status active, then calls the same RPC against this same database.
+The check allows 200, 400, and 403. It ignores 402, 404, and 409, and it never reads data.duplicate. The README SQL is the right duplicate check; the script never runs it. Default shape is 1000 parallel burns. Missing TOKEN or CALL_ID is another empty run that still passes the latency threshold.
+
+Billing gift — POST /api/gifts/send with { receiverId, giftId, idempotencyKey } is only half-compatible.
+
+Catalog id in code is g_rose, not rose. Express looks up that exact id and returns 400 Invalid gift before any debit. The check treats 400 as success, so the default Express run is a false pass and never tests idempotency. Express also ignores idempotencyKey and builds a ledger key with Date.now(), so a valid gift id debits once per request. The sensitive limiter is 40/minute per user.
+Next/CJS calls gift_spend_atomic and does honor a shared idempotency key. There is no virtual_gifts table in supabase_schema.sql (gifts live in system_configs.virtual_gifts_json). A missing catalog row falls through to a 10-coin debit. Default GIFT_ID=rose takes that fallback. One successful Next run spends coins on the production wallet. The script has no thresholds. Insufficient balance is 400, which the check counts as success.
+Safety risks
+Localhost still writes the production Supabase project.
+Redis is off, so presence and reconnect storms update profiles.
+Chat inserts real messages. Burn and the Next gift path move real coins. Express gift with a valid id double-debits because idempotency is not enforced there.
+Copied README command k6 run -e BASE_URL=... -e TOKEN=... k6/presence_heartbeat.js uses the 1000-VU default.
+Several checks count 401, 400, or 429 as success, or pass when the script sends nothing.
+First localhost command
+Start the app first (npm run dev, Express on port 3000). This run only hits GET /api/health, which does not write Supabase:
+
+k6 run -e BASE_URL=http://127.0.0.1:3000 -e RPS=5 -e DURATION=20s .\k6\auth_profile_burst.js
+If k6 is not on PATH in that terminal, call C:\Program Files\k6\k6.exe instead. Leave presence, chat, reconnect, burn, and gift until Redis is configured and the target database is not this production project.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+The high-concurrency design is only partly in the code. Redis helpers, atomic wallet RPCs, cursor message reads, and server-side LiveKit tokens exist. Heartbeats still fall through to Postgres, chat is still a database change stream, and the Express process is still stateful.
+
+Passed checks
+Redis presence primitive. lib/redis.ts sets presence:{userId} with a 75-second TTL (SET + ex), plus profile:{userId}, rate:{userId}:{endpoint}, and call:{callId}. The client heartbeat in src/context/AppContext.tsx posts to /api/presence/heartbeat about every 30 seconds with jitter, and only asks for up to 200 peer ids.
+
+Billing on the Next/CJS path is server-authoritative. POST /api/calls/burn accepts { callId, billingMinute } and rejects client coin fields. Rates come from system_configs. burn_call_coins_atomic locks the caller with SELECT … FOR UPDATE, refuses a balance below the debit, and writes wallet_ledger. A unique index on (call_id, billing_minute, transaction_type, user_id) blocks a second CALL_DEBIT for the same minute. gift_spend_atomic does the same with idempotency_key. REVOKE UPDATE (coin_balance, earnings_coins) blocks anon and authenticated clients from writing balances. The app client sends only callId and billingMinute.
+
+Message history is paged. app/api/messages/route.ts GET loads 30 rows and returns a created_at cursor. The schema indexes (sender_id, receiver_id, created_at DESC) and (receiver_id, sender_id, created_at DESC), which match the real pair model.
+
+Next API handlers do not keep a session map. app/api/** has no serverUsers or activeCalls. Call state on that path is Redis or call_logs.
+
+LiveKit media tokens are minted on the server. app/api/livekit/token/route.ts requires a Supabase JWT, checks Redis call state or call_logs membership, and signs with livekit-server-sdk. The browser never sees LIVEKIT_API_SECRET.
+
+PostgREST, not a raw session. Route handlers use @supabase/supabase-js over HTTP. There is no pg pool and no direct port 5432 client, so this path does not open one Postgres session per invocation. docs/connection_pooling_and_env.md matches that.
+
+Failures
+1. Heartbeats still write Postgres
+The Redis write is gated. If Upstash is missing, or the body says offline, every tick updates profiles.last_seen_at:
+
+
+route.ts
+Ln 34–52
+const durable = Boolean(body?.durable) || writeStatus === 'offline';
+if (isRedisConfigured()) {
+  if (writeStatus === 'offline') await deletePresence(auth.profileId);
+  else await setPresence(auth.profileId, writeStatus);
+}
+if (durable || !isRedisConfigured()) {
+  const client = createServiceClient();
+  // ... updates online_status, last_seen_at, updated_at
+}
+The same fallback is in api/_lib/handlers/presence/heartbeat.ts and api/_lib/cjs/coreRoutes.js (handlePresence). Local .env has VITE_SUPABASE_URL and the service role key, and does not set UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN. With that env, isRedisConfigured() is false, so every heartbeat writes the hosted Supabase project.
+
+Other writers ignore the “login/logout only” rule:
+
+api/_lib/handlers/presence/index.ts always updates last_seen_at on POST /api/presence.
+api/_lib/cjs/appExtrasRoutes.js POST /api/creator/heartbeat always updates last_seen_at and adds 45 seconds to creator_metrics.
+Express server.ts maybeTouchLastSeenDb still writes last_seen_at during heartbeats, throttled to 45 seconds, via touchLastSeenAdmin.
+GET /api/presence with no Redis id list calls buildPresenceMap, which reads up to 2000 profile rows.
+2. Pooling and query shape do not match the blueprint
+There is no DATABASE_URL and no PgBouncer 6543 URL. That is acceptable only while every query stays on PostgREST. The blueprint’s pooler rule is not implemented for any future raw SQL worker.
+
+Message storage is still sender/receiver, not conversations / conversation_id. There is no index on (conversation_id, created_at) because that column does not exist.
+
+Discovery is unbounded. fetchProfilesFromSupabase in src/services/supabaseService.ts selects every non-banned profile with no cursor. GET /api/v1/matches/me is a hard limit(200), not a cursor.
+
+3. Billing is safe only on one path
+Express server.ts POST /api/gifts/send reads coin_balance, updates it without FOR UPDATE, and builds the ledger key with Date.now(), so it ignores idempotencyKey. Parallel gifts can double-debit. npm run dev is that Express server.
+
+The CJS gift handler queries a virtual_gifts table that is not in supabase_schema.sql. On a miss it uses a client coinCost hint, or 10 coins. That is client-influenced pricing.
+
+burn_call_coins_atomic checks for an existing debit before it locks the caller row. The unique index stops a double charge, but the losing request becomes a 500 instead of duplicate: true. There is no CHECK (coin_balance >= 0) on profiles.
+
+4. Chat is an insert plus a change stream, not a targeted broadcast
+POST /api/messages inserts into messages and returns. It does not publish a Realtime Broadcast. Delivery is subscribeToRealtimeChat in src/services/supabaseService.ts: postgres_changes on messages filtered by receiver_id or sender_id. That is narrower than a global table stream, and it is still a database change feed, not a private conversation:{id} broadcast. Profile insert/delete still uses a channel named public_profiles_changes with no user filter.
+
+Express server.ts is not stateless. It keeps serverUsers, activeCalls, socket lists, and lastSeenDbWriteAt. npm run dev still starts that process and its WebSocket server. Vercel Next routes avoid those maps. Request-local Maps in api/_lib/cjs/financeRoutes.js are fine.
+
+5. LiveKit authorization is split
+The Next route checks membership. The older api/_lib/handlers/livekit/token.ts treats any room whose name starts with call_ or lk_, or whose name contains the caller’s id, as authorized. A logged-in user can mint a token for another person’s call_* room through that handler.
+
+Action items
+Stop tick writes. In app/api/presence/heartbeat/route.ts, api/_lib/handlers/presence/heartbeat.ts, and handlePresence in api/_lib/cjs/coreRoutes.js, write Redis only when status is online or busy. Write profiles.last_seen_at only from login and logout handlers. If Redis is unset, return 503 instead of updating profiles. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN on Vercel and in local env before any load test.
+
+Remove the other heartbeat writers. Make api/_lib/handlers/presence/index.ts and creator/heartbeat in api/_lib/cjs/appExtrasRoutes.js call setPresence only. Keep creator online-seconds accrual on a slow job, not on the 30-second tick. In server.ts, stop calling maybeTouchLastSeenDb from applyPresenceHeartbeat.
+
+Replace the presence directory scan. buildPresenceMap should not run on the hot path. GET /api/presence should require an id list and MGET those Redis keys.
+
+Chat delivery. After the insert in app/api/messages/route.ts, broadcast on user:{receiverId} (the helper pattern already in api/_lib/cjs/adminRoutes.js). Keep postgres_changes as a reconnect fallback, or drop it once broadcast is reliable. Add a cursor to fetchProfilesFromSupabase (created_at or id, limit 30–50). Do not add a conversation_id index until a conversations table exists; the current pair indexes are the ones the queries can use.
+
+One billing path. Point gifts at gift_spend_atomic only. Delete or stop routing through the Express debit in server.ts. Resolve cost from system_configs.virtual_gifts_json (g_rose, not a client amount). Move the duplicate EXISTS check in burn_call_coins_atomic to after FOR UPDATE, and catch unique-violation as duplicate: true. Add CHECK (coin_balance >= 0).
+
+LiveKit. Make app/api/livekit/token/route.ts the only minter. Remove the call_ / lk_ name shortcut in api/_lib/handlers/livekit/token.ts. Keep identity equal to the authenticated profile id.
+
+Express. Treat server.ts as local-only. Do not deploy it as the 10k path. Vercel should serve the Next routes, with Redis required.

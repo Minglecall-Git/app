@@ -1,0 +1,90 @@
+Feature status (real vs cosmetic)
+Section	Status	What actually happens
+
+Auth / onboarding ok
+Mostly real
+Email OTP + password via Supabase. Phone OTP is simulated (123456).
+
+Home / CMS ok
+Partial
+Banners/policies can load from Supabase; also cached in localStorage.
+
+
+Discovery / swipe / quick match ok
+Mostly real
+Profiles from live users. Left swipe is local-only.
+
+
+Video calls (LiveKit) ok
+Partial–real
+Real tokens + /api/calls/burn. Demo call spawn, fake audio levels, “AI nudity shield” is CSS blur.
+
+
+Chat
+Partial
+Persists to Supabase + realtime, but bypasses Express. Translation is a hardcoded phrase map.
+
+
+Coin store
+Cosmetic / unsafe
+“Pay” instantly credits coins — no payment gateway. Test grant (+500) exists.
+
+
+VIP
+Cosmetic
+Only updates React state (+100 coins). No DB persistence.
+
+
+Daily rewards
+Real
+Claims go through /api/rewards/*.
+
+
+Earnings / payouts
+Partial
+Call logs real; invoices imply Stripe; payouts are in-app requests only (no bank rail).
+
+
+Male analytics
+Partial
+Ledger API exists; UI admits payments not live.
+
+
+Admin
+Mixed
+Core admin APIs work; reset/demo tooling, orphaned panels, weak default admin recovery.
+
+
+Team leader
+Partial
+CRUD APIs real; commissions mostly client-side math.
+
+
+Friends / favorites / block
+Mixed
+Writes often hit Supabase; favorites/blocks hydrate from localStorage first (fetch helpers imported but unused).
+
+
+Report user
+Cosmetic
+Toast only — never writes a moderation report.
+
+
+Post-call ratings
+Cosmetic
+React + localStorage only — not in DB.
+
+
+Moments feed
+Partial
+Posts persist; likes are local state only.
+
+
+Storage (R2)
+Partial
+Presigned flow OK when configured; unauthenticated mock-upload + public media proxy.
+
+
+PWA / setup wizard
+Real (by design)
+Browser install + installer APIs.

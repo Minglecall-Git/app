@@ -1,0 +1,782 @@
+---
+description: Dating App Core Architecture & Development Rules
+globs: *
+alwaysApply: true
+---
+
+# Tech Stack & Integrations
+
+- Frontend / API host: Next.js (App Router) on Vercel — React + Tailwind CSS
+- Legacy local: Node.js + Express (`server.ts`) for dual-run only; do not add new Express WS features
+- Database & Authentication: Supabase PostgreSQL + Supabase Auth
+- Database Realtime: Supabase Realtime (targeted channels; no global presence fan-out)
+- Cache & Presence: Upstash Redis (`presence:{userId}` TTL; never heartbeat to Postgres)
+- Database Client (Backend): @supabase/supabase-js (service role in Route Handlers)
+- Video Calling: LiveKit Cloud (tokens server-side only)
+- Media Storage: Cloudflare R2 via S3-compatible Presigned URLs
+- Email: SMTP Service
+- Architecture blueprint: `docs/architecture_engineering_rules.md` (always follow)
+
+# Core Architecture & Data Flow
+
+1. Supabase PostgreSQL is the single source of truth for all persistent application data.
+
+2. Data Access Boundaries:
+
+   - Frontend to Supabase (Direct):
+     React may communicate directly with Supabase ONLY for:
+       - Supabase Auth session management
+       - Supabase Realtime subscriptions
+       - Read-only queries protected by strict RLS
+
+   - Frontend to Node.js Backend:
+     All business-critical mutations and sensitive operations MUST go through Node.js Express REST APIs, including:
+       - Creating or modifying user/business records
+       - Sending messages
+       - Matching logic
+       - Likes/swipes where server validation is required
+       - Payment operations
+       - Subscription operations
+       - Moderation actions
+       - LiveKit token issuance
+       - R2 upload intent/presigned URL requests
+       - External API integrations
+
+   - Backend to Supabase:
+     Node.js uses @supabase/supabase-js for validated database operations, administrative operations, and multi-step business workflows.
+
+3. Never allow the frontend to bypass backend authorization for business-critical operations.
+
+4. Supabase PostgreSQL remains the authoritative source of persistent application state even when data is temporarily cached on the client.
+
+# Supabase Realtime
+
+1. Use Supabase Realtime for real-time application events where appropriate.
+
+2. Use:
+   - postgres_changes for database-backed events
+   - Broadcast for transient real-time events
+   - Presence for online/offline presence where appropriate
+
+3. Use Supabase Realtime for:
+   - New messages
+   - Message updates where required
+   - Match notifications
+   - Online/offline presence
+   - Relevant real-time status changes
+
+4. Do NOT create a custom WebSocket or Socket.IO server for functionality that Supabase Realtime can handle.
+
+5. Real-time events must never replace persistent database storage.
+
+# Client-Side State & Local Storage
+
+1. React state/context is only for ephemeral UI state, such as:
+   - Modal visibility
+   - Active tabs
+   - Temporary form values
+   - Unsaved input
+   - Temporary filters
+   - Loading states
+   - Temporary UI state
+
+2. Supabase PostgreSQL is the source of truth for persistent data.
+
+3. Never store authoritative business, user, dating, messaging, matching, payment, subscription, moderation, or account data only in:
+   - Local Storage
+   - Session Storage
+   - IndexedDB
+   - Browser memory
+   - Client-side caches
+
+4. If data must survive:
+   - Page refresh
+   - Logout/login
+   - Browser changes
+   - Device changes
+   - Multiple sessions
+
+   it MUST be persisted in Supabase.
+
+5. Local Storage is permitted only for non-critical client-specific preferences, such as:
+   - Theme preference
+   - Collapsed sidebar
+   - Non-sensitive UI preferences
+   - Dismissed temporary banners
+   - Other clearly non-authoritative convenience settings
+
+6. Local Storage is NOT a database.
+
+7. Never store passwords, service-role keys, private API credentials, payment secrets, LiveKit secrets, R2 secrets, or other sensitive credentials in Local Storage.
+
+# Database Rules & Schema Management
+
+1. Supabase PostgreSQL is the authoritative database.
+
+2. Before creating or modifying database functionality:
+   - Inspect the existing database structure.
+   - Reuse existing tables and columns where appropriate.
+   - Check existing relationships and constraints.
+   - Avoid creating duplicate structures.
+
+3. Do not create duplicate:
+   - Tables
+   - Columns
+   - Relationships
+   - Functions
+   - Triggers
+   - Business logic
+
+   without first checking the existing implementation.
+
+4. The project uses ONE canonical database schema file:
+
+   /supabase_schema.sql
+
+5. DO NOT create or maintain multiple schema files or migration files unless explicitly requested by the user.
+
+6. Every database change MUST be reflected in:
+
+   /supabase_schema.sql
+
+7. This includes:
+   - New tables
+   - New columns
+   - Column type changes
+   - Default values
+   - Foreign keys
+   - Indexes
+   - Unique constraints
+   - Check constraints
+   - Enums/types
+   - Database functions
+   - Triggers
+   - Views
+   - RLS policies
+   - RLS helper functions
+   - Other database-level changes
+
+8. Whenever the database structure changes:
+   - Update /supabase_schema.sql immediately.
+   - Keep the file representative of the complete current database schema.
+   - Never make a database change without updating the schema file.
+
+9. Never modify the database schema silently.
+
+10. If a feature requires a database change:
+    - Identify the required table/column/relationship/policy changes.
+    - Update /supabase_schema.sql.
+    - Implement the application code against the updated schema.
+
+11. Prefer normalized relational structures over large JSON blobs when relational columns are appropriate.
+
+12. Use appropriate PostgreSQL data types.
+
+13. Use TIMESTAMPTZ for timestamps unless there is a specific reason otherwise.
+
+14. Prefer server/database-generated timestamps using NOW() for authoritative timestamps.
+
+15. Database constraints should enforce important data integrity rules wherever practical.
+
+# Supabase Security & RLS
+
+1. Row Level Security (RLS) MUST be enabled on every user-accessible table.
+
+2. Never rely solely on:
+   - React route protection
+   - Hidden UI elements
+   - Client-side role checks
+   - Client-side filtering
+
+   for authorization.
+
+3. Authorization MUST ultimately be enforced through:
+   - Backend authorization
+   - Supabase RLS
+   - Database constraints
+   - Or an appropriate combination of these
+
+4. Every new user-accessible table must have appropriate RLS policies before the feature is considered complete.
+
+5. Never expose:
+   - Supabase service_role key
+   - Cloudflare R2 Access Key ID
+   - Cloudflare R2 Secret Access Key
+   - LiveKit API Secret
+   - SMTP credentials
+   - Payment gateway private keys
+   - Other private API credentials
+
+   to the React frontend.
+
+6. Client-accessible environment variables such as VITE_* or REACT_APP_* may contain only values that are safe to expose publicly.
+
+7. Supabase URL and anon/public key may be exposed to the client when used according to Supabase security practices and protected by RLS.
+
+# Authentication
+
+1. Supabase Auth is the authentication authority.
+
+2. Do not create a second independent authentication system unless explicitly requested.
+
+3. User identity must be derived from the verified Supabase authentication session/JWT.
+
+4. Never trust a client-submitted user_id when the authenticated user ID can be derived from the session.
+
+5. Authentication and authorization are separate concerns:
+   - Authentication determines who the user is.
+   - Authorization determines what the user is allowed to do.
+
+6. Always enforce authorization server-side and/or through RLS.
+
+# API & Backend Architecture
+
+1. React communicates with Node.js through defined REST APIs.
+
+2. REST API endpoints should use consistent naming and structure.
+
+3. Prefer versioned API routes where appropriate, for example:
+
+   /api/v1/...
+
+4. Verify API contracts between:
+   - React fetchers
+   - Express routes
+   - Backend services
+   - Database operations
+
+   before modifying request or response parameters.
+
+5. Never change an API request/response contract without checking all consumers.
+
+6. Validate all incoming API data on the backend.
+
+7. Use strict schema validation such as Zod where appropriate.
+
+8. Backend APIs must not trust client-submitted:
+   - user_id
+   - role
+   - permissions
+   - prices
+   - payment amounts
+   - subscription state
+   - moderation status
+   - ownership IDs
+   - account status
+
+9. Sensitive values must be derived from the authenticated server-side session or verified against the database.
+
+10. Keep API response structures consistent.
+
+11. Prefer a consistent response format such as:
+
+   Success:
+   {
+     success: true,
+     data: ...
+   }
+
+   Error:
+   {
+     success: false,
+     error: {
+       message: "...",
+       code: "..."
+     }
+   }
+
+12. Do not expose internal implementation details through API responses.
+
+# Dating & Social Data
+
+1. The following persistent data MUST reside in Supabase:
+
+   - User profiles
+   - Profile preferences
+   - Dating preferences
+   - Likes
+   - Dislikes/swipes
+   - Matches
+   - Conversations
+   - Messages
+   - Blocks
+   - Reports
+   - Notifications
+   - Calls/call history
+   - Subscriptions
+   - Account status
+   - Moderation records
+   - Other persistent social/application data
+
+2. Never store these authoritative records only in Local Storage or client-side state.
+
+3. Users must only access data they are authorized to access.
+
+4. A user must never access another user's private data simply by changing an ID in a request.
+
+5. User ownership must be verified server-side and/or through RLS.
+
+# Messaging
+
+1. Persistent messages MUST be stored in Supabase.
+
+2. Sending messages MUST use the Node.js backend unless there is an explicitly approved RLS-safe exception.
+
+3. Before inserting a message, the backend must verify:
+   - Authenticated user
+   - Conversation membership
+   - User is not blocked where applicable
+   - Message validity
+   - Message size/type limits
+   - Appropriate rate limits
+
+4. Receiving messages should use Supabase Realtime.
+
+5. Recommended flow:
+
+   React
+      ↓
+   Express API
+      ↓
+   Authenticate user
+      ↓
+   Validate conversation membership
+      ↓
+   Validate/sanitize message
+      ↓
+   Supabase
+      ↓
+   Supabase Realtime
+      ↓
+   Recipient
+
+6. Do not implement custom Socket.IO/WebSocket infrastructure when Supabase Realtime is sufficient.
+
+7. Message drafts may be temporarily held in React state.
+
+8. Message history MUST come from persistent database records, not Local Storage.
+
+# Privacy, Blocking & Moderation
+
+1. Likes/swipes must remain private unless the product explicitly exposes them.
+
+2. Never expose private like/swipe information through unrestricted client queries.
+
+3. Blocked users must be excluded at the authorization/query level whenever possible.
+
+4. Do not rely on frontend JavaScript loops to enforce privacy or blocking.
+
+5. Reports and moderation decisions must be persisted in Supabase.
+
+6. Moderation status must never be trusted when submitted by the client.
+
+7. Backend and RLS rules must prevent unauthorized users from accessing private conversations, profiles, reports, or moderation information.
+
+# External API & Provider Architecture
+
+1. All private third-party API integrations MUST be handled server-side.
+
+2. Never expose third-party API credentials to React.
+
+3. External integrations must be isolated inside dedicated service/provider modules.
+
+4. Do not spread provider-specific API logic throughout React components or unrelated backend modules.
+
+5. Example structure:
+
+   /src/services/providers/
+      /livekit/
+      /r2/
+      /smtp/
+      /payments/
+      /other/
+
+6. Each external provider should have a dedicated client/service layer responsible for:
+   - Authentication
+   - Request construction
+   - Response handling
+   - Error handling
+   - Timeouts
+   - Retries where appropriate
+   - Rate limits
+   - Logging
+
+7. Normalize external API responses before passing them into application-level business logic.
+
+8. Do not allow supplier-specific data structures to leak throughout the frontend.
+
+9. External API failures must be handled gracefully.
+
+10. External API failures must not leave the local database in an inconsistent state.
+
+11. Store external provider IDs/references in Supabase when needed for reconciliation or future operations.
+
+12. Do not use an external provider API as the application's database.
+
+# Media Storage — Cloudflare R2
+
+1. Cloudflare R2 is the authoritative storage location for user-uploaded media such as:
+   - Profile pictures
+   - Chat attachments
+   - Verification images
+   - Other approved media
+
+2. Do NOT stream or pipe large media files through the Node.js Express server unnecessarily.
+
+3. Use direct-to-R2 uploads through short-lived S3-compatible presigned URLs.
+
+4. Standard upload flow:
+
+   Step 1:
+   React requests an upload intent from Node.js.
+
+   Step 2:
+   Node.js authenticates the user and validates:
+      - MIME type
+      - File extension
+      - File size
+      - Upload purpose
+      - User authorization
+
+   Step 3:
+   Node.js generates a unique and unguessable object key.
+
+   Example:
+
+   profiles/{user_id}/{uuid}.jpg
+
+   Step 4:
+   Node.js generates a short-lived presigned PUT URL.
+
+   Step 5:
+   React uploads the binary directly to R2.
+
+   Step 6:
+   Backend records the media metadata/reference in Supabase.
+
+5. Never store large raw image/video binaries directly inside PostgreSQL.
+
+6. Supabase should store metadata and references such as:
+   - user_id
+   - object_key
+   - media_type
+   - file_size
+   - status
+   - created_at
+
+7. Validate media ownership before update/delete operations.
+
+# Video Calling — LiveKit WebRTC
+
+1. LiveKit is responsible for real-time audio/video communication.
+
+2. LiveKit room creation, authorization, participant validation, and token generation MUST remain isolated inside dedicated Node.js services.
+
+3. Never generate LiveKit access tokens in React.
+
+4. Never expose LiveKit API secrets to the frontend.
+
+5. Recommended call flow:
+
+   React
+      ↓
+   Node.js
+      ↓
+   Authenticate user
+      ↓
+   Verify user is authorized for the call
+      ↓
+   Create/retrieve LiveKit room
+      ↓
+   Generate token
+      ↓
+   Return token to React
+      ↓
+   React connects to LiveKit
+
+6. Verify that users are authorized participants before issuing a LiveKit token.
+
+7. Call records must be persisted in Supabase when required.
+
+8. Persistent call records may contain:
+   - caller_id
+   - receiver_id
+   - conversation/match ID
+   - room ID
+   - call type
+   - start time
+   - end time
+   - duration
+   - status
+   - missed/rejected/completed state
+
+9. Actual real-time audio/video streams must remain on LiveKit/WebRTC.
+
+# Email
+
+1. SMTP credentials must remain server-side.
+
+2. React must never directly use SMTP credentials.
+
+3. Email sending should be handled through dedicated backend email services.
+
+4. Email templates should be reusable and centralized where practical.
+
+5. Do not block critical application requests unnecessarily when an email can be queued or sent asynchronously.
+
+# Payments & Subscriptions
+
+1. Payment status must never be trusted from the React client.
+
+2. Payment provider responses/webhooks must be verified server-side.
+
+3. Authoritative payment and subscription status must be stored in Supabase.
+
+4. Payment records must contain sufficient information for reconciliation.
+
+5. Never store complete payment-card details in the application database.
+
+6. Payment secrets must remain server-side.
+
+# Code Quality & Development Discipline
+
+1. Surgical changes only.
+
+2. Do NOT rewrite entire files unnecessarily.
+
+3. Do NOT touch working modules unless the requested feature genuinely requires it.
+
+4. Before modifying a file:
+   - Inspect the existing implementation.
+   - Identify dependencies.
+   - Identify callers.
+   - Identify related components/services.
+   - Identify API contracts.
+
+5. Reuse existing:
+   - Components
+   - Hooks
+   - Utilities
+   - API clients
+   - Middleware
+   - Services
+   - Database structures
+
+6. Do not create duplicate utilities or components under different names.
+
+7. Keep business logic out of presentation components.
+
+8. Business logic should live in:
+   - Backend services
+   - Domain utilities
+   - Custom hooks where appropriate
+   - Dedicated application services
+
+9. Keep external provider logic isolated from core business logic.
+
+10. Follow existing project naming conventions and folder structure.
+
+11. Do not introduce a new library when the existing stack already provides an appropriate solution unless there is a clear reason.
+
+# Error Handling
+
+1. Never silently suppress errors.
+
+2. Do not use empty catch blocks such as:
+
+   catch {}
+
+3. Backend APIs must return meaningful HTTP status codes.
+
+4. Backend errors must use structured, sanitized responses.
+
+5. Frontend components must provide useful error states.
+
+6. Never expose:
+   - Stack traces
+   - Raw SQL
+   - Internal filesystem paths
+   - Database credentials
+   - API secrets
+   - Sensitive provider responses
+
+   to the client.
+
+7. Log server-side errors appropriately without exposing sensitive information.
+
+# Performance & Data Fetching
+
+1. Do not fetch large datasets unnecessarily.
+
+2. Use pagination for large lists.
+
+3. Use appropriate database indexes for frequently queried columns.
+
+4. Avoid N+1 database/API queries.
+
+5. Do not repeatedly call external APIs when cached/non-volatile data is sufficient.
+
+6. Do not cache authoritative or highly volatile data in a way that can produce incorrect business decisions.
+
+7. Persistent cache strategies must not override Supabase as the source of truth.
+
+# Database Change Procedure
+
+Whenever a feature requires a database change:
+
+1. Inspect /supabase_schema.sql.
+
+2. Determine whether an existing table/column can be reused.
+
+3. Define the minimum required schema change.
+
+4. Update /supabase_schema.sql.
+
+5. Ensure the schema contains:
+   - Required table/columns
+   - Relationships
+   - Constraints
+   - Indexes
+   - RLS
+   - Required policies
+   - Required functions/triggers
+
+6. Update backend code.
+
+7. Update frontend code.
+
+8. Verify that all code matches the updated schema.
+
+9. Never leave the application code expecting database structures that are missing from /supabase_schema.sql.
+
+10. DO NOT create a second schema file or migration file unless explicitly instructed by the user.
+
+# Testing & Verification
+
+1. A feature is not complete merely because the UI renders correctly.
+
+2. Verify the complete data flow.
+
+3. For database-related features verify:
+   - Insert
+   - Read
+   - Update
+   - Delete where applicable
+   - Foreign keys
+   - Constraints
+   - RLS
+   - Authorization
+
+4. For API-related features verify:
+   - Authentication
+   - Request validation
+   - Authorization
+   - Success response
+   - Failure response
+   - Invalid input
+   - Unauthorized access
+
+5. For realtime features verify:
+   - Database persistence
+   - Subscription
+   - Event delivery
+   - Unauthorized access prevention
+
+6. For media features verify:
+   - Upload authorization
+   - File validation
+   - Presigned URL expiration
+   - R2 upload
+   - Metadata persistence
+   - Ownership
+
+7. For LiveKit features verify:
+   - Authentication
+   - Match/call authorization
+   - Token generation
+   - Room access
+   - Call record persistence
+
+8. Run relevant tests, linting, type checks, and production builds where available.
+
+# Before Completing Any Task
+
+Before considering any task complete, check:
+
+1. Did the feature require a database change?
+   - If YES, was /supabase_schema.sql updated?
+
+2. Does /supabase_schema.sql represent the complete current database structure?
+
+3. Were appropriate RLS policies created or updated?
+
+4. Does the data flow follow the correct architecture?
+
+5. Is persistent data stored in Supabase?
+
+6. Was Local Storage used only for permitted non-critical purposes?
+
+7. Are all business-critical mutations protected by the backend?
+
+8. Are authenticated user IDs derived from the verified session?
+
+9. Are external API credentials protected?
+
+10. Are LiveKit tokens generated only by the backend?
+
+11. Are R2 uploads using presigned URLs?
+
+12. Were API contracts checked before modifying them?
+
+13. Were only necessary files modified?
+
+14. Was duplicate functionality avoided?
+
+15. Were relevant tests/build/lint checks performed?
+
+# Surgical Change Rule
+
+When implementing a request:
+
+1. Modify the smallest number of files necessary.
+
+2. Do not refactor unrelated code.
+
+3. Do not rewrite working components merely to make them look different.
+
+4. Do not change architecture without a clear requirement.
+
+5. Preserve existing functionality unless the requested feature explicitly changes it.
+
+# No Invented Architecture Rule
+
+When requirements are unclear:
+
+1. Inspect the existing codebase first.
+
+2. Inspect /supabase_schema.sql before creating database structures.
+
+3. Inspect existing API routes before creating new routes.
+
+4. Inspect existing services before creating new services.
+
+5. Reuse existing patterns whenever possible.
+
+6. If the requirement is still genuinely ambiguous, ask for clarification rather than inventing major architecture or business rules.
+
+7. If clarification is unnecessary because a minimal safe implementation is obvious, make the smallest safe change and preserve existing conventions.
+
+# Final Principle
+
+The application must remain:
+
+- Secure
+- Modular
+- Maintainable
+- Database-driven
+- API-driven
+- Realtime-capable
+- Scalable
+- Easy to extend
+
+The architecture should make it possible to add new social features, payment providers, media capabilities, or third-party services without rewriting unrelated working modules.
