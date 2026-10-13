@@ -1,9 +1,13 @@
 /**
  * Shared auth helpers for lightweight Vercel API routes.
- * Uses SUPABASE_SERVICE_ROLE_KEY from server env — never from the browser body.
+ * Uses SUPABASE_SECRET_KEY from server env — never from the browser body.
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {
+  getSupabaseApiEnv,
+  isServerAdminApiKey,
+} from '../../shared/supabaseApiKeys';
 
 export type VercelReq = IncomingMessage & { method?: string; body?: any };
 export type VercelRes = ServerResponse;
@@ -38,11 +42,7 @@ export function extractBearer(req: IncomingMessage): string | null {
 }
 
 export function getSupabaseEnv() {
-  const clean = (v: string) => v.trim().replace(/^["']|["']$/g, '');
-  const url = clean(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '');
-  const anonKey = clean(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '');
-  const serviceKey = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
-  return { url, anonKey, serviceKey };
+  return getSupabaseApiEnv();
 }
 
 export function getR2Env() {
@@ -66,9 +66,9 @@ export function getLiveKitEnv() {
 }
 
 export function createServiceClient(): SupabaseClient | null {
-  const { url, serviceKey } = getSupabaseEnv();
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, {
+  const { url, secretKey } = getSupabaseEnv();
+  if (!url || !secretKey || !isServerAdminApiKey(secretKey)) return null;
+  return createClient(url, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -79,14 +79,14 @@ export async function requireAuthFromBearer(
   | { ok: true; userId: string; profileId: string; role: string; email?: string; user: any; profile: any }
   | { ok: false; status: number; error: any }
 > {
-  const { url, serviceKey } = getSupabaseEnv();
-  if (!url || !serviceKey) {
+  const { url, secretKey } = getSupabaseEnv();
+  if (!url || !secretKey || !isServerAdminApiKey(secretKey)) {
     return {
       ok: false,
       status: 503,
       error: {
         message:
-          'Missing VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server environment (Vercel Project Settings).',
+          'Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SECRET_KEY in server environment (Vercel Project Settings).',
         code: 'ENV_MISSING',
       },
     };
@@ -101,7 +101,7 @@ export async function requireAuthFromBearer(
     };
   }
 
-  const admin = createClient(url, serviceKey, {
+  const admin = createClient(url, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
@@ -119,7 +119,7 @@ export async function requireAuthFromBearer(
           hint = ' Session expired — sign out and sign in again.';
         } else if (iss && expected && !iss.startsWith(expected)) {
           hint =
-            ' Browser session project does not match server SUPABASE URL. On Vercel, VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be from the same project, then Redeploy.';
+            ' Browser session project does not match server SUPABASE URL. On Vercel, NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY must be from the same project, then Redeploy.';
         } else if (userErr?.message) {
           hint = ` (${String(userErr.message).slice(0, 120)})`;
         }

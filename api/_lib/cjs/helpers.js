@@ -40,15 +40,6 @@ async function readJsonBody(req) {
   }
 }
 
-function getSupabaseEnv() {
-  return {
-    url: clean(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
-    anonKey: clean(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY),
-    // Never fall back to anon — service-role only for backend mutations / RLS bypass.
-    serviceKey: clean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-  };
-}
-
 function decodeJwtRole(token) {
   try {
     const parts = String(token || '').split('.');
@@ -59,6 +50,39 @@ function decodeJwtRole(token) {
   } catch {
     return null;
   }
+}
+
+function isServerAdminApiKey(key) {
+  const k = clean(key);
+  if (!k || k.startsWith('••••')) return false;
+  if (k.startsWith('sb_secret_')) return true;
+  if (k.startsWith('sb_publishable_')) return false;
+  return decodeJwtRole(k) === 'service_role';
+}
+
+function getSupabaseEnv() {
+  const url = clean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.VITE_SUPABASE_URL ||
+      process.env.SUPABASE_URL
+  );
+  const publishableKey = clean(
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY
+  );
+  // Never fall back to publishable — secret only for backend mutations / RLS bypass.
+  const secretKey = clean(
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+  return {
+    url,
+    publishableKey,
+    secretKey,
+    anonKey: publishableKey,
+    serviceKey: secretKey,
+  };
 }
 
 /** Transaction-pooler URL for raw SQL drivers (PgBouncer / Supavisor :6543). */
@@ -84,19 +108,18 @@ function getPooledDatabaseUrl() {
 }
 
 function createServiceClient() {
-  const { url, serviceKey } = getSupabaseEnv();
-  if (!url || !serviceKey) return null;
-  const role = decodeJwtRole(serviceKey);
-  if (role && role !== 'service_role') {
+  const { url, secretKey, serviceKey } = getSupabaseEnv();
+  const key = secretKey || serviceKey;
+  if (!url || !key) return null;
+  if (!isServerAdminApiKey(key)) {
     console.error(
-      '[api/_lib/cjs/helpers] SUPABASE_SERVICE_ROLE_KEY is not a service_role JWT (got role=%s). Refusing client.',
-      role
+      '[api/_lib/cjs/helpers] SUPABASE_SECRET_KEY is not a secret API key (sb_secret_… / legacy service_role). Refusing client.'
     );
     return null;
   }
   // PostgREST HTTPS — pooled server-side. Warn if a direct DB URL is mis-set.
   void getPooledDatabaseUrl();
-  return createClient(url, serviceKey, {
+  return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     db: { schema: 'public' },
     global: { headers: { 'X-Client-Info': 'minglecall-vercel-cjs' } },
@@ -344,7 +367,7 @@ async function requireAuth(req) {
           hint = ' Session expired — sign out and sign in again.';
         } else if (iss && expected && !iss.startsWith(expected)) {
           hint =
-            ' Browser session project does not match server SUPABASE URL. On Vercel, VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be from the same project, then Redeploy.';
+            ' Browser session project does not match server SUPABASE URL. On Vercel, NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY must be from the same project, then Redeploy.';
         } else if (userErr && userErr.message) {
           hint = ` (${String(userErr.message).slice(0, 120)})`;
         }

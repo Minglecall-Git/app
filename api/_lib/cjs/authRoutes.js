@@ -523,11 +523,12 @@ async function loginPassword(req, res) {
       }
     }
 
-    const { url, anonKey } = getSupabaseEnv();
-    if (!url || !anonKey) {
-      return send(res, 503, { success: false, error: 'Supabase anon key not configured' });
+    const { url, publishableKey, anonKey } = getSupabaseEnv();
+    const publicKey = publishableKey || anonKey;
+    if (!url || !publicKey) {
+      return send(res, 503, { success: false, error: 'Supabase publishable key not configured' });
     }
-    const anon = createClient(url, anonKey, {
+    const anon = createClient(url, publicKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data, error } = await anon.auth.signInWithPassword({

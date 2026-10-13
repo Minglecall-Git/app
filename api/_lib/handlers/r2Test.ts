@@ -106,16 +106,22 @@ export default async function handler(req: VercelReq, res: VercelRes) {
       return send(res, 405, { success: false, message: 'Method not allowed' });
     }
 
-    const supabaseUrl = clean(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
-    const serviceKey = clean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabaseUrl = clean(
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+        process.env.VITE_SUPABASE_URL ||
+        process.env.SUPABASE_URL
+    );
+    const serviceKey = clean(
+      process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
     const accountId = clean(process.env.R2_ACCOUNT_ID);
     const accessKeyId = clean(process.env.R2_ACCESS_KEY_ID);
     const secretAccessKey = clean(process.env.R2_SECRET_ACCESS_KEY);
     const bucketName = clean(process.env.R2_BUCKET_NAME) || 'datingappbucket';
 
     const present = {
-      VITE_SUPABASE_URL: Boolean(supabaseUrl),
-      SUPABASE_SERVICE_ROLE_KEY: Boolean(serviceKey),
+      NEXT_PUBLIC_SUPABASE_URL: Boolean(supabaseUrl),
+      SUPABASE_SECRET_KEY: Boolean(serviceKey),
       R2_ACCOUNT_ID: Boolean(accountId),
       R2_ACCESS_KEY_ID: Boolean(accessKeyId),
       R2_SECRET_ACCESS_KEY: Boolean(secretAccessKey),
@@ -127,7 +133,7 @@ export default async function handler(req: VercelReq, res: VercelRes) {
         success: false,
         present,
         message:
-          'Missing Supabase server env on this deployment (VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).',
+          'Missing Supabase server env on this deployment (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SECRET_KEY).',
       });
     }
 

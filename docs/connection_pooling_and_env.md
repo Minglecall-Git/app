@@ -13,7 +13,7 @@
 ### PostgREST / `@supabase/supabase-js` (default)
 
 - Route Handlers and `server/` use **`@supabase/supabase-js`** against the project **HTTPS API URL** (`https://<ref>.supabase.co`).
-- That path hits **PostgREST**, which already pools. Do **not** put a Postgres `host:6543` string into `NEXT_PUBLIC_SUPABASE_URL` / `VITE_SUPABASE_URL`.
+- That path hits **PostgREST**, which already pools. Do **not** put a Postgres `host:6543` string into `NEXT_PUBLIC_SUPABASE_URL`.
 - Client factories: `lib/nextAuth.ts`, `server/supabaseAdmin.ts`. Browser client: `src/lib/supabase.ts` (reads inlined `NEXT_PUBLIC_SUPABASE_*`).
 - Some admin diagnostics still `require` CJS under `api/_lib/` (kept as libraries, not public Vercel functions).
 
@@ -63,10 +63,9 @@ Copy names into **`.env.local`** and into **Vercel → Settings → Environment 
 
 | Variable | Client? | Purpose |
 | --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Preferred public Supabase HTTPS URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Preferred anon key (RLS) |
-| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Yes* | Still accepted; `next.config.mjs` copies them into `NEXT_PUBLIC_*` at build/dev |
-| `SUPABASE_SERVICE_ROLE_KEY` | **No** | Server admin client |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase HTTPS project URL |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Publishable key (`sb_publishable_…`) for browser + RLS |
+| `SUPABASE_SECRET_KEY` | **No** | Secret key (`sb_secret_…`) for server admin client |
 | `DATABASE_URL` | **No** | Optional Transaction pooler `:6543` for raw SQL |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | **No** | Preferred Redis REST pair |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | **No** | Alternate Redis REST pair (Vercel KV / Upstash) |
@@ -79,9 +78,9 @@ Copy names into **`.env.local`** and into **Vercel → Settings → Environment 
 | `FINANCE_JOB_ACTOR_USER_ID` | **No** | Profile id for cron settlement actor |
 | `FINANCE_WEBHOOK_SECRET` | **No** | Payment webhooks when enabled |
 | `SETUP_MASTER_KEY` / `SETUP_LOCKED` / `ALLOW_FACTORY_RESET` | **No** | Server setup lock |
-| `NEXT_PUBLIC_API_BASE_URL` / `VITE_API_BASE_URL` | — | **Leave unset** on Vercel (same-origin `/api`) |
+| `NEXT_PUBLIC_API_BASE_URL` | — | **Leave unset** on Vercel (same-origin `/api`) |
 
-\*Browser must see URL/anon via inlined `NEXT_PUBLIC_*`. Prefer setting `NEXT_PUBLIC_*` on Vercel, or keep `VITE_*` and rely on `next.config.mjs` mapping.
+Code still accepts temporary fallbacks (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `VITE_*`, `SUPABASE_SERVICE_ROLE_KEY`) if the canonical names are empty. Prefer the publishable/secret names only.
 
 ## Presence durability rule
 

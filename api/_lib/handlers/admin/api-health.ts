@@ -45,13 +45,17 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 
     {
       const t0 = Date.now();
-      const { url, serviceKey, anonKey } = getSupabaseEnv();
+      const { url, secretKey, serviceKey, publishableKey, anonKey } = getSupabaseEnv();
+      const pub = publishableKey || anonKey;
+      const sec = secretKey || serviceKey;
       checks.push({
         id: 'supabase',
         label: 'Supabase env',
-        ok: Boolean(url && serviceKey && anonKey),
+        ok: Boolean(url && sec && pub),
         latencyMs: Date.now() - t0,
-        detail: url ? `URL set · service=${Boolean(serviceKey)} · anon=${Boolean(anonKey)}` : 'Missing Supabase URL/keys',
+        detail: url
+          ? `URL set · secret=${Boolean(sec)} · publishable=${Boolean(pub)}`
+          : 'Missing Supabase URL/keys',
         source: 'server',
       });
     }

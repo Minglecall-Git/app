@@ -3,6 +3,11 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import { purgeR2MediaUploads, clearLocalMediaCache } from './r2Storage';
 import { VIRTUAL_GIFTS } from '../src/constants/appDefaults';
+import {
+  isServerAdminApiKey,
+  resolveSecretKeyFromEnv,
+  resolveSupabaseUrlFromEnv,
+} from '../shared/supabaseApiKeys';
 
 dotenv.config();
 
@@ -62,20 +67,15 @@ function isMissingGalleryVideosColumnError(err: unknown): boolean {
   return /gallery_videos/i.test(msg) && (/column/i.test(msg) || /schema cache/i.test(msg));
 }
 
-let supabaseUrl = (
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  process.env.VITE_SUPABASE_URL ||
-  process.env.SUPABASE_URL ||
-  ''
-).trim();
-// Never fall back to anon/public key — that would silently lose service-role privileges
+let supabaseUrl = resolveSupabaseUrlFromEnv();
+// Never fall back to publishable/public key — that would silently lose admin privileges
 // and break RLS-bypass admin mutations (or worse, look "configured" while failing writes).
-let supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+let supabaseServiceKey = resolveSecretKeyFromEnv();
 
 let supabaseAdmin: SupabaseClient | null = null;
 
 export function updateSupabaseRuntimeConfig(url?: string, key?: string) {
-  // Keep secrets in module state only. Do not copy the service role into process.env,
+  // Keep secrets in module state only. Do not copy the secret into process.env,
   // which can leak into a later client bundle or a shared serverless isolate.
   if (url !== undefined) {
     supabaseUrl = String(url).trim();
@@ -90,18 +90,6 @@ export function updateSupabaseRuntimeConfig(url?: string, key?: string) {
   }
 }
 
-function decodeJwtRole(token: string): string | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) return null;
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-    return typeof payload?.role === 'string' ? payload.role : null;
-  } catch {
-    return null;
-  }
-}
-
 export function isSupabaseAdminConfigured(): boolean {
   return Boolean(
     supabaseUrl &&
@@ -111,17 +99,21 @@ export function isSupabaseAdminConfigured(): boolean {
   );
 }
 
-/** True only when the server key is a service_role JWT (anon keys cannot bypass RLS). */
+/** True when the server key is sb_secret_… or a legacy service_role JWT. */
+export function isSupabaseSecretConfigured(): boolean {
+  return isSupabaseAdminConfigured() && isServerAdminApiKey(supabaseServiceKey);
+}
+
+/** @deprecated use isSupabaseSecretConfigured */
 export function isSupabaseServiceRoleConfigured(): boolean {
-  return isSupabaseAdminConfigured() && decodeJwtRole(supabaseServiceKey) === 'service_role';
+  return isSupabaseSecretConfigured();
 }
 
 export function getSupabaseAdmin(): SupabaseClient | null {
   if (!isSupabaseAdminConfigured()) return null;
-  // Prefer service_role; warn loudly if a non-service JWT was configured
-  if (!isSupabaseServiceRoleConfigured()) {
+  if (!isSupabaseSecretConfigured()) {
     console.error(
-      '[supabaseAdmin] SUPABASE_SERVICE_ROLE_KEY is missing or not a service_role JWT. Admin mutations will fail under RLS.'
+      '[supabaseAdmin] SUPABASE_SECRET_KEY is missing or is not a secret API key (sb_secret_… / legacy service_role). Admin mutations will fail under RLS.'
     );
   }
   if (!supabaseAdmin) {
@@ -1329,14 +1321,14 @@ export async function granularResetSupabaseAdmin(options: {
 }): Promise<{ success: boolean; clearedTables: string[]; error?: string; warnings?: string[] }> {
   const client = getSupabaseAdmin();
   if (!client) {
-    return { success: false, clearedTables: [], error: 'Supabase service role admin is not configured.' };
+    return { success: false, clearedTables: [], error: 'Supabase secret-key admin is not configured.' };
   }
-  if (!isSupabaseServiceRoleConfigured()) {
+  if (!isSupabaseSecretConfigured()) {
     return {
       success: false,
       clearedTables: [],
       error:
-        'Database reset requires SUPABASE_SERVICE_ROLE_KEY. The anon key cannot bypass RLS, so tables would not actually be purged.',
+        'Database reset requires SUPABASE_SECRET_KEY (sb_secret_…). A publishable/anon key cannot bypass RLS, so tables would not actually be purged.',
     };
   }
 

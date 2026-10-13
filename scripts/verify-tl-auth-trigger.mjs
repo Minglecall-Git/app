@@ -6,7 +6,11 @@ dotenv.config();
 
 const mcp = JSON.parse(fs.readFileSync('.cursor/mcp.json', 'utf8'));
 const token = mcp.mcpServers.supabase.headers.Authorization.replace(/^Bearer\s+/i, '');
-const ref = (process.env.VITE_SUPABASE_URL || '').match(/https:\/\/([a-z0-9]+)\.supabase\.co/i)[1];
+const ref = (
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  ''
+).match(/https:\/\/([a-z0-9]+)\.supabase\.co/i)[1];
 
 const q = `select pg_get_functiondef('public.handle_new_auth_user'::regproc) as def;`;
 const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
@@ -23,7 +27,10 @@ console.log('status', res.status);
 console.log('has_team_leader', String(def).includes('team_leader'));
 console.log('has_agency_manager', String(def).includes('agency_manager'));
 
-const client = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+const client = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
+  {
   auth: { persistSession: false },
 });
 const { data: tls } = await client

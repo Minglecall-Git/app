@@ -24,7 +24,7 @@ function getMcpToken() {
 }
 
 function getProjectRef() {
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) || '';
   const match = url.match(/https:\/\/([a-z0-9]+)\.supabase\.co/i);
   return match ? match[1] : '';
 }
@@ -61,7 +61,7 @@ async function main() {
   const token = getMcpToken();
   const ref = getProjectRef();
   if (!ref) {
-    console.error('No project ref from VITE_SUPABASE_URL');
+    console.error('No project ref from NEXT_PUBLIC_SUPABASE_URL');
     process.exit(1);
   }
   if (!token) {

@@ -161,7 +161,7 @@ function getMcpToken() {
 }
 
 function getProjectRef() {
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) || '';
   const m = url.match(/https:\/\/([a-z0-9]+)\.supabase\.co/i);
   return m ? m[1] : '';
 }
@@ -198,7 +198,7 @@ async function main() {
     process.exit(1);
   }
   if (!ref) {
-    console.error('No project ref from VITE_SUPABASE_URL');
+    console.error('No project ref from NEXT_PUBLIC_SUPABASE_URL');
     process.exit(1);
   }
 
@@ -229,8 +229,8 @@ async function main() {
   console.log('Backfill applied OK');
 
   // Verify via service role
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
+  const key = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (url && key) {
     const client = createClient(url, key, { auth: { persistSession: false } });
     const { data, error } = await client

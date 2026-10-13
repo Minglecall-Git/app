@@ -18,7 +18,11 @@ const url = (
   process.env.SUPABASE_URL ||
   ''
 ).trim();
-const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const serviceKey = (
+  process.env.SUPABASE_SECRET_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  ''
+).trim();
 
 const email = (process.env.SEED_ADMIN_EMAIL || 'admin@livecall.app').trim().toLowerCase();
 const name = (process.env.SEED_ADMIN_NAME || 'System Admin').trim();
@@ -27,7 +31,7 @@ const password =
   `Admin-${randomBytes(6).toString('base64url')}!1a`;
 
 if (!url || !serviceKey) {
-  console.error('Missing SUPABASE URL or SUPABASE_SERVICE_ROLE_KEY (.env.local).');
+  console.error('Missing SUPABASE URL or SUPABASE_SECRET_KEY (.env.local).');
   process.exit(1);
 }
 

@@ -31,7 +31,7 @@ function getMcpToken() {
 }
 
 function getProjectRef() {
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) || '';
   const m = url.match(/https:\/\/([a-z0-9]+)\.supabase\.co/i);
   return m ? m[1] : '';
 }
@@ -77,8 +77,8 @@ async function main() {
 
   // Safe data backfill: public-looking rows stuck as team_leader with no agency are out of scope;
   // only fix male_user gender mismatches if any.
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
+  const key = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (url && key) {
     const client = createClient(url, key, { auth: { persistSession: false } });
     const { data, error } = await client

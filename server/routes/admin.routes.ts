@@ -12,7 +12,7 @@ import {
 import {
   isSupabaseAdminConfigured,
   granularResetSupabaseAdmin,
-  isSupabaseServiceRoleConfigured,
+  isSupabaseSecretConfigured,
   backfillMissingAuthIdsAdmin,
   authenticateUserWithPasswordAdmin,
   updateSupabaseRuntimeConfig,
@@ -206,13 +206,13 @@ export function createAdminRouter(ctx: ServerRuntime): Router {
       // 2. If Supabase Admin is configured, perform complete cascading database purge
       let supabaseResult: any = { success: true, clearedTables: [], warnings: [] };
       if (isSupabaseAdminConfigured()) {
-        if (!isSupabaseServiceRoleConfigured()) {
+        if (!isSupabaseSecretConfigured()) {
           return res.status(503).json({
             success: false,
             error: {
               message:
-                'Database reset requires SUPABASE_SERVICE_ROLE_KEY. The anon key cannot bypass RLS, so tables would not actually be purged.',
-              code: 'SERVICE_ROLE_REQUIRED',
+                'Database reset requires SUPABASE_SECRET_KEY (sb_secret_…). A publishable/anon key cannot bypass RLS, so tables would not actually be purged.',
+              code: 'SECRET_KEY_REQUIRED',
             },
           });
         }
@@ -955,7 +955,12 @@ export function createAdminRouter(ctx: ServerRuntime): Router {
       success: true,
       config: {
         supabaseUrl: infraConfig.supabaseUrl,
-        supabaseAnonKey: mask(infraConfig.supabaseAnonKey),
+        supabasePublishableKey: mask(
+          (infraConfig as any).supabasePublishableKey || infraConfig.supabaseAnonKey
+        ),
+        supabaseAnonKey: mask(
+          (infraConfig as any).supabasePublishableKey || infraConfig.supabaseAnonKey
+        ),
         r2AccountId: infraConfig.r2AccountId,
         r2AccessKeyId: infraConfig.r2AccessKeyId ? `${String(infraConfig.r2AccessKeyId).slice(0, 4)}…` : '',
         r2SecretAccessKey: mask(infraConfig.r2SecretAccessKey),
@@ -979,19 +984,24 @@ export function createAdminRouter(ctx: ServerRuntime): Router {
 
       const nextUrl =
         updates.supabaseUrl !== undefined ? String(updates.supabaseUrl).trim() : undefined;
-      const nextAnon =
-        updates.supabaseAnonKey !== undefined &&
-        !String(updates.supabaseAnonKey).startsWith('••••')
-          ? String(updates.supabaseAnonKey).trim()
+      const rawPublishable =
+        updates.supabasePublishableKey !== undefined
+          ? updates.supabasePublishableKey
+          : updates.supabaseAnonKey;
+      const nextPublishable =
+        rawPublishable !== undefined && !String(rawPublishable).startsWith('••••')
+          ? String(rawPublishable).trim()
           : undefined;
 
       if (nextUrl !== undefined) {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = nextUrl;
         process.env.SUPABASE_URL = nextUrl;
         infraConfig.supabaseUrl = nextUrl;
       }
-      if (nextAnon !== undefined) {
-        process.env.SUPABASE_ANON_KEY = nextAnon;
-        infraConfig.supabaseAnonKey = nextAnon;
+      if (nextPublishable !== undefined) {
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = nextPublishable;
+        (infraConfig as any).supabasePublishableKey = nextPublishable;
+        infraConfig.supabaseAnonKey = nextPublishable;
       }
       if (updates.r2AccountId !== undefined) process.env.R2_ACCOUNT_ID = updates.r2AccountId;
       if (updates.r2AccessKeyId !== undefined) process.env.R2_ACCESS_KEY_ID = updates.r2AccessKeyId;
@@ -1005,7 +1015,7 @@ export function createAdminRouter(ctx: ServerRuntime): Router {
       if (updates.r2PublicUrl !== undefined) process.env.R2_PUBLIC_URL = updates.r2PublicUrl;
 
       // Keep admin Supabase client pointed at the URL the admin just saved.
-      // Service role key stays from env (never accept service_role from the browser).
+      // Secret key stays from env (never accept SUPABASE_SECRET_KEY from the browser).
       if (nextUrl !== undefined) {
         updateSupabaseRuntimeConfig(nextUrl, undefined);
       }
@@ -1022,7 +1032,7 @@ export function createAdminRouter(ctx: ServerRuntime): Router {
       return res.json({
         success: true,
         message:
-          'Infrastructure parameters updated for this server instance. On Vercel, also set VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY in Project Settings → Environment Variables and redeploy for a permanent client build.',
+          'Infrastructure parameters updated for this server instance. On Vercel, also set NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY / SUPABASE_SECRET_KEY in Project Settings → Environment Variables and redeploy for a permanent client build.',
         config: {
           r2Configured: isR2Configured(),
           supabaseConfigured: Boolean(infraConfig.supabaseUrl),

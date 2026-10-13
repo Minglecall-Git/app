@@ -323,7 +323,7 @@ async function handleAdmin(path, req, res) {
     const livekit = livekitEnv();
     const supabaseConfigured = Boolean(
       supabase.url &&
-        supabase.anonKey &&
+        (supabase.publishableKey || supabase.anonKey) &&
         !supabase.url.includes('placeholder') &&
         !supabase.url.includes('your-project')
     );
@@ -344,9 +344,12 @@ async function handleAdmin(path, req, res) {
         config: {
           source: 'environment',
           supabaseUrl: supabase.url,
-          supabaseAnonKey: supabase.anonKey ? '••••••••' : '',
-          supabaseAnonKeyConfigured: Boolean(supabase.anonKey),
-          supabaseServiceRoleConfigured: Boolean(supabase.serviceKey),
+          supabasePublishableKey: (supabase.publishableKey || supabase.anonKey) ? '••••••••' : '',
+          supabasePublishableKeyConfigured: Boolean(supabase.publishableKey || supabase.anonKey),
+          supabaseSecretConfigured: Boolean(supabase.secretKey || supabase.serviceKey),
+          supabaseAnonKey: (supabase.publishableKey || supabase.anonKey) ? '••••••••' : '',
+          supabaseAnonKeyConfigured: Boolean(supabase.publishableKey || supabase.anonKey),
+          supabaseServiceRoleConfigured: Boolean(supabase.secretKey || supabase.serviceKey),
           supabaseConfigured,
           r2AccountId: r2.accountId ? `${r2.accountId.slice(0, 4)}…` : '',
           r2AccessKeyId: r2.accessKeyId ? `${r2.accessKeyId.slice(0, 4)}…` : '',
@@ -368,7 +371,7 @@ async function handleAdmin(path, req, res) {
     return send(res, 200, {
       success: true,
       message: onVercel
-        ? 'No secrets were changed. On Vercel, set VITE_SUPABASE_*, SUPABASE_SERVICE_ROLE_KEY, R2_*, and LIVEKIT_* in Project Settings → Environment Variables, then Redeploy. Pool/R2 size sliders here are not persisted.'
+        ? 'No secrets were changed. On Vercel, set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, R2_*, and LIVEKIT_* in Project Settings → Environment Variables, then Redeploy. Pool/R2 size sliders here are not persisted.'
         : 'No secrets were changed via this endpoint. Use local Express setup / .env for local secret persistence.',
       config: {
         source: 'environment',

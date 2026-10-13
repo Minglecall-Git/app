@@ -27,7 +27,7 @@ function getMcpToken() {
 }
 
 function getProjectRef() {
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) || '';
   const m = url.match(/https:\/\/([a-z0-9]+)\.supabase\.co/i);
   return m ? m[1] : '';
 }

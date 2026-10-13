@@ -844,7 +844,7 @@ export async function signInWithEmailPassword(
         error:
           err?.message && String(err.message).length < 160
             ? `Unable to connect to authentication server (${err.message}).`
-            : 'Unable to connect to authentication server. Check Supabase URL/anon key env vars.',
+            : 'Unable to connect to authentication server. Check NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.',
       };
     }
   }

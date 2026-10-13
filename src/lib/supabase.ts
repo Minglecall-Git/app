@@ -3,8 +3,8 @@ import { Database } from '../types/database.types';
 
 /**
  * Next inlines only a direct `process.env.NEXT_PUBLIC_*` read.
- * next.config copies VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY into those
- * names at `next dev` and at the Vercel `next build`, so one read works in both.
+ * next.config maps publishable (and temporary anon fallbacks) into
+ * NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY.
  */
 function readInlinedPublic(value: string | undefined): string {
   return String(value || '')
@@ -14,7 +14,7 @@ function readInlinedPublic(value: string | undefined): string {
 
 const CLIENT_SUPABASE_OVERRIDE_KEY = 'minglecall_supabase_client_override';
 
-type ClientOverride = { url: string; anonKey: string };
+type ClientOverride = { url: string; publishableKey: string };
 
 function isValidHttpUrl(value: string): boolean {
   try {
@@ -40,21 +40,25 @@ function readClientOverride(): ClientOverride | null {
     if (typeof localStorage === 'undefined') return null;
     const raw = localStorage.getItem(CLIENT_SUPABASE_OVERRIDE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as ClientOverride;
+    const parsed = JSON.parse(raw) as {
+      url?: string;
+      publishableKey?: string;
+      anonKey?: string;
+    };
     const url = String(parsed?.url || '')
       .trim()
       .replace(/^["']|["']$/g, '');
-    const anonKey = String(parsed?.anonKey || '')
+    const publishableKey = String(parsed?.publishableKey || parsed?.anonKey || '')
       .trim()
       .replace(/^["']|["']$/g, '');
     if (
       url &&
-      anonKey &&
+      publishableKey &&
       isValidHttpUrl(url) &&
       !url.includes('placeholder') &&
-      !anonKey.startsWith('••••')
+      !publishableKey.startsWith('••••')
     ) {
-      return { url, anonKey };
+      return { url, publishableKey };
     }
     // Bad override (e.g. after DB switch) would crash createClient → black page.
     clearClientOverride();
@@ -64,12 +68,12 @@ function readClientOverride(): ClientOverride | null {
   return null;
 }
 
-function writeClientOverride(url: string, anonKey: string) {
+function writeClientOverride(url: string, publishableKey: string) {
   try {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(
       CLIENT_SUPABASE_OVERRIDE_KEY,
-      JSON.stringify({ url: url.trim(), anonKey: anonKey.trim() })
+      JSON.stringify({ url: url.trim(), publishableKey: publishableKey.trim() })
     );
   } catch {
     /* ignore */
@@ -77,59 +81,61 @@ function writeClientOverride(url: string, anonKey: string) {
 }
 
 const envUrl = readInlinedPublic(process.env.NEXT_PUBLIC_SUPABASE_URL);
-const envAnonKey = readInlinedPublic(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+const envPublishableKey = readInlinedPublic(
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
-function isEnvSupabaseConfigured(url: string, anonKey: string): boolean {
+function isEnvSupabaseConfigured(url: string, publishableKey: string): boolean {
   return Boolean(
     url &&
-      anonKey &&
+      publishableKey &&
       isValidHttpUrl(url) &&
       !url.includes('placeholder') &&
       !url.includes('your-project-ref') &&
-      !anonKey.startsWith('••••')
+      !publishableKey.startsWith('••••')
   );
 }
 
 /**
- * Prefer the inlined NEXT_PUBLIC_ values (filled from VITE_SUPABASE_* on local and Vercel).
+ * Prefer inlined NEXT_PUBLIC_ values.
  * localStorage override only fills gaps when env is missing — prevents localhost
  * from silently using a different Supabase project than production.
  */
-function resolveClientConfig(): { url: string; anonKey: string } {
+function resolveClientConfig(): { url: string; publishableKey: string } {
   const override = readClientOverride();
-  const envReady = isEnvSupabaseConfigured(envUrl, envAnonKey);
+  const envReady = isEnvSupabaseConfigured(envUrl, envPublishableKey);
 
   if (envReady) {
     if (
       override &&
-      (override.url !== envUrl || override.anonKey !== envAnonKey)
+      (override.url !== envUrl || override.publishableKey !== envPublishableKey)
     ) {
       clearClientOverride();
       try {
         console.info(
-          '[supabase] Cleared stale localStorage override; using VITE_SUPABASE_* from env.'
+          '[supabase] Cleared stale localStorage override; using NEXT_PUBLIC_SUPABASE_* from env.'
         );
       } catch {
         /* ignore */
       }
     }
-    return { url: envUrl, anonKey: envAnonKey };
+    return { url: envUrl, publishableKey: envPublishableKey };
   }
 
   if (override) {
-    return { url: override.url, anonKey: override.anonKey };
+    return { url: override.url, publishableKey: override.publishableKey };
   }
 
-  return { url: envUrl, anonKey: envAnonKey };
+  return { url: envUrl, publishableKey: envPublishableKey };
 }
 
 const resolved = resolveClientConfig();
 let supabaseUrl = resolved.url;
-let supabaseAnonKey = resolved.anonKey;
+let supabasePublishableKey = resolved.publishableKey;
 
 // Fallback placeholder to allow graceful instantiation without crashing
 const FALLBACK_URL = 'https://placeholder-project.supabase.co';
-const FALLBACK_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder';
+const FALLBACK_PUBLISHABLE_KEY = 'sb_publishable_placeholder';
 
 const clientOptions = {
   auth: {
@@ -149,27 +155,27 @@ const clientOptions = {
 
 function safeCreateClient(url: string, key: string): SupabaseClient<Database> {
   const nextUrl = isValidHttpUrl(url) ? url : FALLBACK_URL;
-  const nextKey = String(key || '').trim() || FALLBACK_ANON_KEY;
+  const nextKey = String(key || '').trim() || FALLBACK_PUBLISHABLE_KEY;
   try {
     return createClient<Database>(nextUrl, nextKey, clientOptions);
   } catch (err) {
     console.warn('[supabase] createClient failed, using placeholder client:', err);
     clearClientOverride();
     supabaseUrl = '';
-    supabaseAnonKey = '';
-    return createClient<Database>(FALLBACK_URL, FALLBACK_ANON_KEY, clientOptions);
+    supabasePublishableKey = '';
+    return createClient<Database>(FALLBACK_URL, FALLBACK_PUBLISHABLE_KEY, clientOptions);
   }
 }
 
 if (supabaseUrl && !isValidHttpUrl(supabaseUrl)) {
   clearClientOverride();
   supabaseUrl = isValidHttpUrl(envUrl) ? envUrl : '';
-  supabaseAnonKey = supabaseUrl ? envAnonKey : '';
+  supabasePublishableKey = supabaseUrl ? envPublishableKey : '';
 }
 
 let supabaseClient: SupabaseClient<Database> = safeCreateClient(
   supabaseUrl || FALLBACK_URL,
-  supabaseAnonKey || FALLBACK_ANON_KEY
+  supabasePublishableKey || FALLBACK_PUBLISHABLE_KEY
 );
 
 /**
@@ -185,29 +191,28 @@ export const supabase: SupabaseClient<Database> = new Proxy({} as SupabaseClient
 export const isSupabaseConfigured = (): boolean => {
   return Boolean(
     supabaseUrl &&
-      supabaseAnonKey &&
+      supabasePublishableKey &&
       !supabaseUrl.includes('placeholder-project') &&
       !supabaseUrl.includes('your-project-ref')
   );
 };
 
 /**
- * Hot-swap browser Supabase URL/anon key (public values only).
- * Used when Admin saves connection settings without a full redeploy.
- * When VITE_SUPABASE_* is already set (local .env or Vercel build), the swap
- * applies for this tab session only — env remains source of truth on reload.
+ * Hot-swap browser Supabase URL/publishable key (public values only).
  * Persist override to localStorage only when env is missing.
- * For permanent changes: set Vercel/project env vars + redeploy (or update .env).
  */
-export function reconfigureSupabaseClient(url: string, anonKey: string): { success: boolean; error?: string } {
+export function reconfigureSupabaseClient(
+  url: string,
+  publishableKey: string
+): { success: boolean; error?: string } {
   const nextUrl = String(url || '')
     .trim()
     .replace(/^["']|["']$/g, '');
-  const nextKey = String(anonKey || '')
+  const nextKey = String(publishableKey || '')
     .trim()
     .replace(/^["']|["']$/g, '');
   if (!nextUrl || !nextKey || nextKey.startsWith('••••')) {
-    return { success: false, error: 'Supabase URL and anon key are required.' };
+    return { success: false, error: 'Supabase URL and publishable key are required.' };
   }
   if (nextUrl.includes('placeholder') || nextUrl.includes('your-project')) {
     return { success: false, error: 'Replace the placeholder Supabase project URL.' };
@@ -230,10 +235,9 @@ export function reconfigureSupabaseClient(url: string, anonKey: string): { succe
 
   try {
     supabaseUrl = nextUrl;
-    supabaseAnonKey = nextKey;
-    if (isEnvSupabaseConfigured(envUrl, envAnonKey)) {
-      // Avoid writing a stale override that would fight env on next boot.
-      if (nextUrl !== envUrl || nextKey !== envAnonKey) {
+    supabasePublishableKey = nextKey;
+    if (isEnvSupabaseConfigured(envUrl, envPublishableKey)) {
+      if (nextUrl !== envUrl || nextKey !== envPublishableKey) {
         clearClientOverride();
       } else {
         writeClientOverride(nextUrl, nextKey);
@@ -249,14 +253,22 @@ export function reconfigureSupabaseClient(url: string, anonKey: string): { succe
   }
 }
 
-export function getSupabaseClientConfig(): { url: string; anonKeyConfigured: boolean } {
+export function getSupabaseClientConfig(): {
+  url: string;
+  publishableKeyConfigured: boolean;
+  /** @deprecated use publishableKeyConfigured */
+  anonKeyConfigured: boolean;
+} {
+  const configured = Boolean(
+    supabasePublishableKey && !supabasePublishableKey.startsWith('••••')
+  );
   return {
     url: supabaseUrl || '',
-    anonKeyConfigured: Boolean(supabaseAnonKey && !supabaseAnonKey.startsWith('••••')),
+    publishableKeyConfigured: configured,
+    anonKeyConfigured: configured,
   };
 }
 
-// Connection check utility
 export async function testSupabaseConnection(): Promise<{
   connected: boolean;
   latencyMs: number;
@@ -268,7 +280,8 @@ export async function testSupabaseConnection(): Promise<{
     return {
       connected: false,
       latencyMs: 0,
-      message: 'Supabase URL or Anon Key is missing. Configure them in Settings / Environment Variables.',
+      message:
+        'Supabase URL or publishable key is missing. Configure NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.',
       configured: false,
     };
   }

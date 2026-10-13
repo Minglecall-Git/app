@@ -1991,8 +1991,21 @@ async function startServer(): Promise<express.Express> {
 
   // In-memory infrastructure configuration cache (shared with admin routes)
   const infraConfig = {
-    supabaseUrl: process.env.VITE_SUPABASE_URL || '',
-    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || '',
+    supabaseUrl:
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.VITE_SUPABASE_URL ||
+      '',
+    supabasePublishableKey:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      '',
+    /** @deprecated use supabasePublishableKey */
+    supabaseAnonKey:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      '',
     r2AccountId: process.env.R2_ACCOUNT_ID || '',
     r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
     r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
@@ -3497,11 +3510,26 @@ async function startServer(): Promise<express.Express> {
   // Supabase Backend Status Check
   app.get('/api/supabase/status', (req, res) => {
     const isConfigured = isSupabaseAdminConfigured();
+    const publishableConfigured = Boolean(
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+        process.env.VITE_SUPABASE_ANON_KEY ||
+        process.env.SUPABASE_ANON_KEY
+    );
+    const secretConfigured = Boolean(
+      process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
     res.json({
       configured: isConfigured,
-      url: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || null,
-      serviceKeyConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      anonKeyConfigured: Boolean(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY),
+      url:
+        process.env.NEXT_PUBLIC_SUPABASE_URL ||
+        process.env.VITE_SUPABASE_URL ||
+        process.env.SUPABASE_URL ||
+        null,
+      secretKeyConfigured: secretConfigured,
+      publishableKeyConfigured: publishableConfigured,
+      /** @deprecated */ serviceKeyConfigured: secretConfigured,
+      /** @deprecated */ anonKeyConfigured: publishableConfigured,
     });
   });
 
@@ -3564,16 +3592,16 @@ async function startServer(): Promise<express.Express> {
       if (!isSupabaseAdminConfigured()) {
         push({
           id: 'supabase',
-          label: 'Supabase (service role)',
+          label: 'Supabase (secret key)',
           ok: false,
-          detail: 'SUPABASE_SERVICE_ROLE_KEY / URL missing',
+          detail: 'SUPABASE_SECRET_KEY / URL missing',
         });
       } else {
         try {
           const probe = await testSupabaseConnectivity();
           push({
             id: 'supabase',
-            label: 'Supabase (service role)',
+            label: 'Supabase (secret key)',
             ok: Boolean(probe.success),
             latencyMs: Date.now() - t0,
             detail: probe.message || 'reachable',
@@ -3581,7 +3609,7 @@ async function startServer(): Promise<express.Express> {
         } catch (e: any) {
           push({
             id: 'supabase',
-            label: 'Supabase (service role)',
+            label: 'Supabase (secret key)',
             ok: false,
             latencyMs: Date.now() - t0,
             detail: e?.message || 'probe failed',
@@ -3945,9 +3973,29 @@ async function startServer(): Promise<express.Express> {
         smtp: smtpConfigured,
       },
       envValues: {
-        supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
-        supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || '',
-        supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ? '••••••••' : '',
+        supabaseUrl:
+          process.env.NEXT_PUBLIC_SUPABASE_URL ||
+          process.env.VITE_SUPABASE_URL ||
+          process.env.SUPABASE_URL ||
+          '',
+        supabasePublishableKey:
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+          process.env.VITE_SUPABASE_ANON_KEY ||
+          '',
+        supabaseSecretKey: (process.env.SUPABASE_SECRET_KEY ||
+        process.env.SUPABASE_SERVICE_ROLE_KEY)
+          ? '••••••••'
+          : '',
+        /** @deprecated */ supabaseAnonKey:
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+          process.env.VITE_SUPABASE_ANON_KEY ||
+          '',
+        /** @deprecated */ supabaseServiceRoleKey: (process.env.SUPABASE_SECRET_KEY ||
+        process.env.SUPABASE_SERVICE_ROLE_KEY)
+          ? '••••••••'
+          : '',
         livekitUrl: livekitConfig.wsUrl,
         livekitApiKey: livekitConfig.apiKey ? '••••••••' : '',
         livekitApiSecret: livekitConfig.apiSecret ? '••••••••' : '',
@@ -4112,6 +4160,8 @@ async function startServer(): Promise<express.Express> {
     try {
       const {
         supabaseUrl,
+        supabasePublishableKey,
+        supabaseSecretKey,
         supabaseAnonKey,
         supabaseServiceRoleKey,
         livekitUrl,
@@ -4133,18 +4183,20 @@ async function startServer(): Promise<express.Express> {
         lockInstaller,
       } = req.body;
 
+      const publishableKey = supabasePublishableKey || supabaseAnonKey;
+      const secretKey = supabaseSecretKey || supabaseServiceRoleKey;
+
       const envUpdates: Record<string, string | number | boolean | undefined> = {};
 
       if (supabaseUrl) {
-        envUpdates['VITE_SUPABASE_URL'] = supabaseUrl;
+        envUpdates['NEXT_PUBLIC_SUPABASE_URL'] = supabaseUrl;
         envUpdates['SUPABASE_URL'] = supabaseUrl;
       }
-      if (supabaseAnonKey) {
-        envUpdates['VITE_SUPABASE_ANON_KEY'] = supabaseAnonKey;
-        envUpdates['SUPABASE_ANON_KEY'] = supabaseAnonKey;
+      if (publishableKey) {
+        envUpdates['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'] = publishableKey;
       }
-      if (supabaseServiceRoleKey && !supabaseServiceRoleKey.startsWith('••••')) {
-        envUpdates['SUPABASE_SERVICE_ROLE_KEY'] = supabaseServiceRoleKey;
+      if (secretKey && !String(secretKey).startsWith('••••')) {
+        envUpdates['SUPABASE_SECRET_KEY'] = secretKey;
       }
 
       if (livekitUrl) envUpdates['LIVEKIT_URL'] = livekitUrl;
@@ -4182,10 +4234,10 @@ async function startServer(): Promise<express.Express> {
       updateEnvFile(envUpdates);
 
       // Apply runtime updates immediately to active server singletons
-      if (supabaseUrl || (supabaseServiceRoleKey && !supabaseServiceRoleKey.startsWith('••••'))) {
+      if (supabaseUrl || (secretKey && !String(secretKey).startsWith('••••'))) {
         updateSupabaseRuntimeConfig(
           supabaseUrl,
-          supabaseServiceRoleKey && !supabaseServiceRoleKey.startsWith('••••') ? supabaseServiceRoleKey : undefined
+          secretKey && !String(secretKey).startsWith('••••') ? secretKey : undefined
         );
       }
 

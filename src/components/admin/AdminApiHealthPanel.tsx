@@ -58,7 +58,8 @@ async function probeRealtime(timeoutMs = 5000): Promise<CheckRow> {
       label: 'Supabase Realtime (browser)',
       ok: false,
       latencyMs: Date.now() - t0,
-      detail: 'Supabase client not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)',
+      detail:
+        'Supabase client not configured (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)',
       source: 'client',
     };
   }

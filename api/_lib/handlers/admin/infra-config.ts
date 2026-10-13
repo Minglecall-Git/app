@@ -1,6 +1,6 @@
 /**
  * Admin infrastructure status — reads secrets from Vercel/server env only.
- * Browser never needs to paste service-role / R2 secrets.
+ * Browser never needs to paste secret / R2 secrets.
  */
 import {
   sendJson,
@@ -38,9 +38,11 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const r2 = getR2Env();
     const livekit = getLiveKitEnv();
 
+    const publishableKey = supabase.publishableKey || supabase.anonKey;
+    const secretKey = supabase.secretKey || supabase.serviceKey;
     const supabaseConfigured = Boolean(
       supabase.url &&
-        supabase.anonKey &&
+        publishableKey &&
         !supabase.url.includes('placeholder') &&
         !supabase.url.includes('your-project')
     );
@@ -60,9 +62,12 @@ export default async function handler(req: VercelReq, res: VercelRes) {
           source: 'environment',
           supabaseUrl: supabase.url,
           // Never return real secrets — only configured flags + public URL
-          supabaseAnonKey: supabase.anonKey ? '••••••••' : '',
-          supabaseAnonKeyConfigured: Boolean(supabase.anonKey),
-          supabaseServiceRoleConfigured: Boolean(supabase.serviceKey),
+          supabasePublishableKey: publishableKey ? '••••••••' : '',
+          supabasePublishableKeyConfigured: Boolean(publishableKey),
+          supabaseSecretConfigured: Boolean(secretKey),
+          /** @deprecated */ supabaseAnonKey: publishableKey ? '••••••••' : '',
+          /** @deprecated */ supabaseAnonKeyConfigured: Boolean(publishableKey),
+          /** @deprecated */ supabaseServiceRoleConfigured: Boolean(secretKey),
           supabaseConfigured,
           r2AccountId: r2.accountId ? `${r2.accountId.slice(0, 4)}…` : '',
           r2AccessKeyId: r2.accessKeyId ? `${r2.accessKeyId.slice(0, 4)}…` : '',
@@ -95,7 +100,7 @@ export default async function handler(req: VercelReq, res: VercelRes) {
       message:
         notes.length > 0
           ? `Accepted ephemeral public overrides (${notes.join(', ')}). Permanent secrets must live in Vercel Environment Variables, then Redeploy.`
-          : 'Using server environment credentials. No secrets were changed. Configure VITE_SUPABASE_*, SUPABASE_SERVICE_ROLE_KEY, R2_*, and LIVEKIT_* in Vercel → Environment Variables.',
+          : 'Using server environment credentials. No secrets were changed. Configure NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, R2_*, and LIVEKIT_* in Vercel → Environment Variables.',
       config: {
         source: 'environment',
         supabaseConfigured,

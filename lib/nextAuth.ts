@@ -6,31 +6,21 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest } from 'next/server';
 import { getPooledDatabaseUrl } from './supabaseDb';
+import {
+  getSupabaseApiEnv,
+  isServerAdminApiKey,
+} from '../shared/supabaseApiKeys';
 
 export function getSupabaseEnv() {
-  const clean = (v: string) => v.trim().replace(/^["']|["']$/g, '');
-  const url = clean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      process.env.VITE_SUPABASE_URL ||
-      process.env.SUPABASE_URL ||
-      ''
-  );
-  const anonKey = clean(
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      process.env.VITE_SUPABASE_ANON_KEY ||
-      process.env.SUPABASE_ANON_KEY ||
-      ''
-  );
-  const serviceKey = clean(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
-  return { url, anonKey, serviceKey };
+  return getSupabaseApiEnv();
 }
 
 export function createServiceClient(): SupabaseClient | null {
-  const { url, serviceKey } = getSupabaseEnv();
-  if (!url || !serviceKey) return null;
+  const { url, secretKey } = getSupabaseEnv();
+  if (!url || !secretKey || !isServerAdminApiKey(secretKey)) return null;
   // Touch pooler env early so misconfigured DATABASE_URL is logged once per cold start
   void getPooledDatabaseUrl();
-  return createClient(url, serviceKey, {
+  return createClient(url, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     db: { schema: 'public' },
     global: { headers: { 'X-Client-Info': 'minglecall-next-service' } },
@@ -52,11 +42,12 @@ export async function requireAuth(req: NextRequest): Promise<
   if (!token) {
     return { ok: false, status: 401, error: { message: 'Missing bearer token', code: 'UNAUTHORIZED' } };
   }
-  const { url, anonKey, serviceKey } = getSupabaseEnv();
-  if (!url || !anonKey) {
+  const { url, publishableKey, anonKey, secretKey } = getSupabaseEnv();
+  const publicKey = publishableKey || anonKey;
+  if (!url || !publicKey) {
     return { ok: false, status: 503, error: { message: 'Supabase not configured', code: 'NO_SUPABASE' } };
   }
-  const anon = createClient(url, anonKey, {
+  const anon = createClient(url, publicKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data: userData, error } = await anon.auth.getUser(token);
@@ -65,7 +56,7 @@ export async function requireAuth(req: NextRequest): Promise<
   }
   const userId = userData.user.id;
   const email = userData.user.email || undefined;
-  const service = serviceKey ? createServiceClient() : null;
+  const service = secretKey ? createServiceClient() : null;
   let profileId = userId;
   let role = 'male_user';
   if (service) {

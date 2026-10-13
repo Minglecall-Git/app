@@ -748,7 +748,9 @@ export interface HomeQuickLink {
 
 export interface InfraSystemConfig {
   supabaseUrl: string;
-  supabaseAnonKey: string;
+  supabasePublishableKey: string;
+  /** @deprecated use supabasePublishableKey */
+  supabaseAnonKey?: string;
   r2AccountId: string;
   r2AccessKeyId: string;
   r2SecretAccessKey: string;
@@ -893,8 +895,10 @@ export interface ServerDiagnosticInfo {
   };
   envValues: {
     supabaseUrl?: string;
-    supabaseAnonKey?: string;
-    supabaseServiceRoleKey?: string;
+    supabasePublishableKey?: string;
+    supabaseSecretKey?: string;
+    /** @deprecated */ supabaseAnonKey?: string;
+    /** @deprecated */ supabaseServiceRoleKey?: string;
     livekitUrl?: string;
     livekitApiKey?: string;
     livekitApiSecret?: string;
@@ -915,8 +919,10 @@ export interface ServerDiagnosticInfo {
 
 export interface SetupConfigPayload {
   supabaseUrl?: string;
-  supabaseAnonKey?: string;
-  supabaseServiceRoleKey?: string;
+  supabasePublishableKey?: string;
+  supabaseSecretKey?: string;
+  /** @deprecated */ supabaseAnonKey?: string;
+  /** @deprecated */ supabaseServiceRoleKey?: string;
   livekitUrl?: string;
   livekitApiKey?: string;
   livekitApiSecret?: string;

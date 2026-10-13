@@ -199,7 +199,7 @@ alwaysApply: true
 4. Every new user-accessible table must have appropriate RLS policies before the feature is considered complete.
 
 5. Never expose:
-   - Supabase service_role key
+   - Supabase secret API key (SUPABASE_SECRET_KEY)
    - Cloudflare R2 Access Key ID
    - Cloudflare R2 Secret Access Key
    - LiveKit API Secret

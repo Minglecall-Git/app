@@ -18,6 +18,7 @@ const {
 function setupHmacSecret() {
   return (
     clean(process.env.SETUP_MASTER_KEY) ||
+    clean(process.env.SUPABASE_SECRET_KEY) ||
     clean(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
     'minglecall-setup'
   );
@@ -980,7 +981,14 @@ async function handleSetup(path, req, res) {
   const env = (k) => clean(process.env[k]);
 
   if ((path === 'setup/status' || path === 'setup') && req.method === 'GET') {
-    const supabaseUrl = env('VITE_SUPABASE_URL') || env('SUPABASE_URL');
+    const supabaseUrl =
+      env('NEXT_PUBLIC_SUPABASE_URL') || env('VITE_SUPABASE_URL') || env('SUPABASE_URL');
+    const publishableKey =
+      env('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') ||
+      env('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
+      env('VITE_SUPABASE_ANON_KEY') ||
+      env('SUPABASE_ANON_KEY');
+    const secretKey = env('SUPABASE_SECRET_KEY') || env('SUPABASE_SERVICE_ROLE_KEY');
     const livekitKey = env('LIVEKIT_API_KEY');
     const livekitSecret = env('LIVEKIT_API_SECRET');
     const livekitOk = Boolean(
@@ -1001,14 +1009,16 @@ async function handleSetup(path, req, res) {
       message:
         'Setup save cannot write .env on Vercel. Set Environment Variables in the Vercel dashboard, then redeploy. Connection tests still work.',
       services: {
-        database: Boolean(supabaseUrl && env('SUPABASE_SERVICE_ROLE_KEY')),
+        database: Boolean(supabaseUrl && secretKey),
         livekit: livekitOk,
         r2Storage: r2Ok,
         smtp: isSmtpConfigured(),
       },
       envValues: {
         supabaseUrl,
-        supabaseAnonKey: env('VITE_SUPABASE_ANON_KEY') || env('SUPABASE_ANON_KEY'),
+        supabasePublishableKey: publishableKey,
+        supabaseSecretKey: secretKey ? '••••••••' : '',
+        supabaseAnonKey: publishableKey,
         livekitUrl: env('LIVEKIT_URL'),
         livekitApiKey: livekitKey ? '••••configured••••' : '',
         r2AccountId: env('R2_ACCOUNT_ID') ? '••••configured••••' : '',
@@ -1022,7 +1032,8 @@ async function handleSetup(path, req, res) {
         smtpSecure: String(env('SMTP_SECURE') || '').toLowerCase() === 'true',
       },
       configured: {
-        supabaseService: Boolean(env('SUPABASE_SERVICE_ROLE_KEY')),
+        supabaseSecret: Boolean(secretKey),
+        supabaseService: Boolean(secretKey),
         livekitSecret: Boolean(livekitSecret),
         r2Secret: Boolean(env('R2_SECRET_ACCESS_KEY')),
         smtp: Boolean(env('SMTP_HOST') || env('RESEND_API_KEY')),
@@ -1086,10 +1097,19 @@ async function handleSetup(path, req, res) {
     const gate = await requireSetupOrAdmin(req);
     if (gate.ok === false) return send(res, gate.status, { success: false, error: gate.error });
     const body = await readJsonBody(req);
-    const url = clean((body && body.supabaseUrl) || env('VITE_SUPABASE_URL') || env('SUPABASE_URL'));
-    const key = clean((body && body.serviceRoleKey) || env('SUPABASE_SERVICE_ROLE_KEY'));
+    const url = clean(
+      (body && body.supabaseUrl) ||
+        env('NEXT_PUBLIC_SUPABASE_URL') ||
+        env('VITE_SUPABASE_URL') ||
+        env('SUPABASE_URL')
+    );
+    const key = clean(
+      (body && (body.secretKey || body.serviceRoleKey)) ||
+        env('SUPABASE_SECRET_KEY') ||
+        env('SUPABASE_SERVICE_ROLE_KEY')
+    );
     if (!url || !key || url.includes('your-project-ref')) {
-      return send(res, 200, { success: false, message: 'Supabase URL and Service Key are required.' });
+      return send(res, 200, { success: false, message: 'Supabase URL and secret key are required.' });
     }
     try {
       const client = createClient(url, key, { auth: { persistSession: false } });

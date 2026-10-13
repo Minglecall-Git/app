@@ -412,7 +412,7 @@ If your account or payout was paused and you believe it was in error, contact su
 // server/supabaseAdmin.ts
 function decodeJwtRole(token) {
   try {
-    const parts = token.split(".");
+    const parts = String(token || "").split(".");
     if (parts.length < 2) return null;
     const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
@@ -421,19 +421,29 @@ function decodeJwtRole(token) {
     return null;
   }
 }
+function isServerAdminApiKey(key) {
+  const k = String(key || "").trim().replace(/^["']|["']$/g, "");
+  if (!k || k.startsWith("••••")) return false;
+  if (k.startsWith("sb_secret_")) return true;
+  if (k.startsWith("sb_publishable_")) return false;
+  return decodeJwtRole(k) === "service_role";
+}
 function isSupabaseAdminConfigured() {
   return Boolean(
     supabaseUrl && supabaseServiceKey && !supabaseUrl.includes("placeholder-project") && !supabaseUrl.includes("your-project-ref")
   );
 }
+function isSupabaseSecretConfigured() {
+  return isSupabaseAdminConfigured() && isServerAdminApiKey(supabaseServiceKey);
+}
 function isSupabaseServiceRoleConfigured() {
-  return isSupabaseAdminConfigured() && decodeJwtRole(supabaseServiceKey) === "service_role";
+  return isSupabaseSecretConfigured();
 }
 function getSupabaseAdmin() {
   if (!isSupabaseAdminConfigured()) return null;
-  if (!isSupabaseServiceRoleConfigured()) {
+  if (!isSupabaseSecretConfigured()) {
     console.error(
-      "[supabaseAdmin] SUPABASE_SERVICE_ROLE_KEY is missing or not a service_role JWT. Admin mutations will fail under RLS."
+      "[supabaseAdmin] SUPABASE_SECRET_KEY is missing or is not a secret API key (sb_secret_… / legacy service_role). Admin mutations will fail under RLS."
     );
   }
   if (!supabaseAdmin) {
@@ -462,8 +472,17 @@ var init_supabaseAdmin = __esm({
     init_r2Storage();
     init_appDefaults();
     import_dotenv.default.config();
-    supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "").trim();
-    supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    supabaseUrl = (
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.VITE_SUPABASE_URL ||
+      process.env.SUPABASE_URL ||
+      ""
+    ).trim();
+    supabaseServiceKey = (
+      process.env.SUPABASE_SECRET_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      ""
+    ).trim();
     supabaseAdmin = null;
   }
 });

@@ -202,6 +202,7 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
   // Form State
   const [config, setConfig] = useState<InfraSystemConfig>({
     supabaseUrl: '',
+    supabasePublishableKey: '',
     supabaseAnonKey: '',
     r2AccountId: '',
     r2AccessKeyId: '',
@@ -435,6 +436,14 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
             setConfig((prev) => {
               const next = { ...prev, ...data.config };
               // Never replace a real typed secret with the server mask.
+              if (
+                typeof data.config.supabasePublishableKey === 'string' &&
+                String(data.config.supabasePublishableKey).startsWith('••••') &&
+                prev.supabasePublishableKey &&
+                !String(prev.supabasePublishableKey).startsWith('••••')
+              ) {
+                next.supabasePublishableKey = prev.supabasePublishableKey;
+              }
               if (
                 typeof data.config.supabaseAnonKey === 'string' &&
                 String(data.config.supabaseAnonKey).startsWith('••••') &&
@@ -1022,38 +1031,44 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
               </h3>
               <p className="text-xs text-slate-400 mt-1">
                 Credentials are loaded from the <span className="text-emerald-300 font-semibold">server environment</span>
-                {' '}(<code className="text-slate-300">VITE_SUPABASE_*</code> /{' '}
-                <code className="text-slate-300">SUPABASE_SERVICE_ROLE_KEY</code>). On Vercel, set them in Project Settings →
+                {' '}(<code className="text-slate-300">NEXT_PUBLIC_SUPABASE_*</code> /{' '}
+                <code className="text-slate-300">SUPABASE_SECRET_KEY</code>). On Vercel, set them in Project Settings →
                 Environment Variables — do not paste secrets into this form.
               </p>
               {(config as any).supabaseConfigured && (
                 <div className="mt-3 text-[11px] font-mono text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
                   Supabase configured from environment
                   {config.supabaseUrl ? ` · ${config.supabaseUrl}` : ''}.
-                  Anon / service-role keys stay on the server.
+                  Publishable / secret keys stay on the server (secret never in the browser).
                 </div>
               )}
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-[#0F1115] p-4 space-y-2 font-mono text-xs">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">VITE_SUPABASE_URL</span>
+                <span className="text-slate-500">NEXT_PUBLIC_SUPABASE_URL</span>
                 <span className="text-emerald-300 truncate max-w-[65%] text-right">
                   {config.supabaseUrl || '— not set in env —'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">VITE_SUPABASE_ANON_KEY</span>
+                <span className="text-slate-500">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</span>
                 <span className="text-amber-300">
-                  {(config as any).supabaseAnonKeyConfigured || config.supabaseAnonKey
+                  {(config as any).supabasePublishableKeyConfigured ||
+                  (config as any).supabaseAnonKeyConfigured ||
+                  config.supabasePublishableKey ||
+                  config.supabaseAnonKey
                     ? '•••••••• (from env)'
                     : '— not set —'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">SUPABASE_SERVICE_ROLE_KEY</span>
+                <span className="text-slate-500">SUPABASE_SECRET_KEY</span>
                 <span className="text-rose-300">
-                  {(config as any).supabaseServiceRoleConfigured ? '•••••••• (from env)' : '— not set —'}
+                  {(config as any).supabaseSecretConfigured ||
+                  (config as any).supabaseServiceRoleConfigured
+                    ? '•••••••• (from env)'
+                    : '— not set —'}
                 </span>
               </div>
             </div>
@@ -1142,7 +1157,7 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
             </h3>
 
             <p className="text-xs text-slate-400">
-              Runs a live service-role probe against Supabase (<code className="text-slate-300">profiles</code> count)
+              Runs a live secret-key probe against Supabase (<code className="text-slate-300">profiles</code> count)
               and reports round-trip latency. Pool size figures from local Express are not applicable on Vercel serverless.
             </p>
 

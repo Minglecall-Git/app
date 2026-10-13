@@ -77,11 +77,12 @@ export async function findProfileByEmail(email: string) {
 }
 
 export async function signInWithPassword(email: string, password: string) {
-  const { url, anonKey } = getSupabaseEnv();
-  if (!url || !anonKey) {
-    return { success: false as const, error: 'Supabase anon key not configured' };
+  const { url, publishableKey, anonKey } = getSupabaseEnv();
+  const publicKey = publishableKey || anonKey;
+  if (!url || !publicKey) {
+    return { success: false as const, error: 'Supabase publishable key not configured' };
   }
-  const client = createClient(url, anonKey, {
+  const client = createClient(url, publicKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await client.auth.signInWithPassword({

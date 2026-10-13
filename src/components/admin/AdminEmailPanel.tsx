@@ -134,7 +134,7 @@ export function AdminEmailPanel() {
     const msg =
       typeof raw === 'string' ? raw : typeof raw?.message === 'string' ? raw.message : fallback;
     if (status === 401 || raw?.code === 'UNAUTHORIZED') {
-      return `${msg} Tip: sign out/in, then confirm Vercel VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY match the same project.`;
+      return `${msg} Tip: sign out/in, then confirm NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SECRET_KEY match the same project.`;
     }
     return msg;
   };

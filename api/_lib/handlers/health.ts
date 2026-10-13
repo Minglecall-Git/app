@@ -34,10 +34,24 @@ export default async function handler(_req: VercelReq, res: VercelRes) {
       time: new Date().toISOString(),
       env: {
         supabase: Boolean(
-          (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) &&
-            process.env.SUPABASE_SERVICE_ROLE_KEY
+          (process.env.NEXT_PUBLIC_SUPABASE_URL ||
+            process.env.VITE_SUPABASE_URL ||
+            process.env.SUPABASE_URL) &&
+            (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
         ),
-        supabaseAnon: Boolean(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY),
+        supabasePublishable: Boolean(
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+            process.env.VITE_SUPABASE_ANON_KEY ||
+            process.env.SUPABASE_ANON_KEY
+        ),
+        /** @deprecated use supabasePublishable */
+        supabaseAnon: Boolean(
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+            process.env.VITE_SUPABASE_ANON_KEY ||
+            process.env.SUPABASE_ANON_KEY
+        ),
         r2: Boolean(
           process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY
         ),

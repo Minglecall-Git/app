@@ -56,6 +56,8 @@ export const ServerSetupWizard: React.FC<ServerSetupWizardProps> = ({ onComplete
   // Form Configuration State
   const [formData, setFormData] = useState<SetupConfigPayload>({
     supabaseUrl: '',
+    supabasePublishableKey: '',
+    supabaseSecretKey: '',
     supabaseAnonKey: '',
     supabaseServiceRoleKey: '',
     livekitUrl: 'wss://your-livekit-project.livekit.cloud',
@@ -125,7 +127,22 @@ export const ServerSetupWizard: React.FC<ServerSetupWizardProps> = ({ onComplete
           setFormData((prev) => ({
             ...prev,
             supabaseUrl: data.envValues.supabaseUrl || prev.supabaseUrl,
-            supabaseAnonKey: data.envValues.supabaseAnonKey || prev.supabaseAnonKey,
+            supabasePublishableKey:
+              data.envValues.supabasePublishableKey ||
+              data.envValues.supabaseAnonKey ||
+              prev.supabasePublishableKey,
+            supabaseSecretKey:
+              data.envValues.supabaseSecretKey ||
+              data.envValues.supabaseServiceRoleKey ||
+              prev.supabaseSecretKey,
+            supabaseAnonKey:
+              data.envValues.supabasePublishableKey ||
+              data.envValues.supabaseAnonKey ||
+              prev.supabaseAnonKey,
+            supabaseServiceRoleKey:
+              data.envValues.supabaseSecretKey ||
+              data.envValues.supabaseServiceRoleKey ||
+              prev.supabaseServiceRoleKey,
             livekitUrl: data.envValues.livekitUrl || prev.livekitUrl,
             livekitApiKey: data.envValues.livekitApiKey || prev.livekitApiKey,
             r2AccountId: data.envValues.r2AccountId || prev.r2AccountId,
@@ -191,7 +208,8 @@ export const ServerSetupWizard: React.FC<ServerSetupWizardProps> = ({ onComplete
         headers: { 'Content-Type': 'application/json', 'X-Setup-Token': setupToken },
         body: JSON.stringify({
           supabaseUrl: formData.supabaseUrl,
-          serviceRoleKey: formData.supabaseServiceRoleKey,
+          secretKey: formData.supabaseSecretKey || formData.supabaseServiceRoleKey,
+          serviceRoleKey: formData.supabaseSecretKey || formData.supabaseServiceRoleKey,
         }),
       });
       const data = await res.json();
@@ -755,13 +773,28 @@ export const ServerSetupWizard: React.FC<ServerSetupWizardProps> = ({ onComplete
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-xs text-emerald-200 font-sans space-y-2">
                   <p className="font-bold text-emerald-300">Keys come from <code className="text-white">.env</code> / Vercel Environment Variables — not from this form.</p>
                   <p className="text-emerald-200/80">
-                    Set <code className="text-white">VITE_SUPABASE_URL</code>, <code className="text-white">VITE_SUPABASE_ANON_KEY</code>, and{' '}
-                    <code className="text-white">SUPABASE_SERVICE_ROLE_KEY</code>, then restart / redeploy.
+                    Set <code className="text-white">NEXT_PUBLIC_SUPABASE_URL</code>,{' '}
+                    <code className="text-white">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code>, and{' '}
+                    <code className="text-white">SUPABASE_SECRET_KEY</code>, then restart / redeploy.
                   </p>
                   <div className="font-mono text-[11px] text-slate-300 space-y-1 pt-1">
                     <div>URL: <span className="text-emerald-300">{formData.supabaseUrl || '— not loaded —'}</span></div>
-                    <div>Anon: <span className="text-amber-300">{formData.supabaseAnonKey ? '•••••••• (env)' : '— not loaded —'}</span></div>
-                    <div>Service: <span className="text-rose-300">{formData.supabaseServiceRoleKey ? '•••••••• (env)' : '— not loaded —'}</span></div>
+                    <div>
+                      Publishable:{' '}
+                      <span className="text-amber-300">
+                        {formData.supabasePublishableKey || formData.supabaseAnonKey
+                          ? '•••••••• (env)'
+                          : '— not loaded —'}
+                      </span>
+                    </div>
+                    <div>
+                      Secret:{' '}
+                      <span className="text-rose-300">
+                        {formData.supabaseSecretKey || formData.supabaseServiceRoleKey
+                          ? '•••••••• (env)'
+                          : '— not loaded —'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

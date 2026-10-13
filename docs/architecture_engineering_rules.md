@@ -57,11 +57,11 @@
 * Whitelist remote image hosts (Supabase, R2 / Cloudflare).
 * Map public Supabase env for the browser:
 
-  * `NEXT_PUBLIC_SUPABASE_URL` ← or fallback `VITE_SUPABASE_URL`
-  * `NEXT_PUBLIC_SUPABASE_ANON_KEY` ← or fallback `VITE_SUPABASE_ANON_KEY`
+  * `NEXT_PUBLIC_SUPABASE_URL`
+  * `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (value is `sb_publishable_…`)
 
+* Server-only: `SUPABASE_SECRET_KEY` (value is `sb_secret_…`). Never put this on `NEXT_PUBLIC_*`.
 * Client code must read **`process.env.NEXT_PUBLIC_*` as a direct property** (Next inlines only that form). Dynamic `process.env[key]` will be empty in the browser.
-* Keep secrets off `NEXT_PUBLIC_*` / `VITE_*`.
 
 ### 3.3 Environment locations
 
@@ -76,8 +76,8 @@ Required names: see `docs/connection_pooling_and_env.md` and `.env.example`.
 ### 3.4 Function best practices
 
 * Keep Route Handlers lean; finance close job uses `CRON_SECRET` / `FINANCE_JOB_SECRET` + `FINANCE_JOB_ACTOR_USER_ID`.
-* Use Supabase HTTPS + service role for most data access; use `DATABASE_URL` pooler `:6543` only for raw SQL drivers.
-* **No long-lived custom WebSockets on Vercel.** Signaling = Supabase Realtime; A/V = LiveKit. Leave `NEXT_PUBLIC_API_BASE_URL` / `VITE_API_BASE_URL` unset so the browser calls same-origin `/api/*`.
+* Use Supabase HTTPS + secret key for most server data access; use `DATABASE_URL` pooler `:6543` only for raw SQL drivers.
+* **No long-lived custom WebSockets on Vercel.** Signaling = Supabase Realtime; A/V = LiveKit. Leave `NEXT_PUBLIC_API_BASE_URL` unset so the browser calls same-origin `/api/*`.
 
 ## 4. Upstash Redis Implementation & Operations
 
