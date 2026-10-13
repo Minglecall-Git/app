@@ -1184,7 +1184,7 @@ async function handleSetup(path, req, res) {
     const accountId = clean((body && body.accountId) || env('R2_ACCOUNT_ID'));
     const accessKeyId = clean((body && body.accessKeyId) || env('R2_ACCESS_KEY_ID'));
     const secretAccessKey = clean((body && body.secretAccessKey) || env('R2_SECRET_ACCESS_KEY'));
-    const bucketName = clean((body && body.bucketName) || env('R2_BUCKET_NAME')) || 'datingappbucket';
+    const bucketName = clean((body && body.bucketName) || env('R2_BUCKET_NAME')) || 'minglecall-bucket';
     if (!accountId || !accessKeyId || !secretAccessKey) {
       return send(res, 200, {
         success: false,

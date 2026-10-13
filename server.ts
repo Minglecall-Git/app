@@ -2009,7 +2009,7 @@ async function startServer(): Promise<express.Express> {
     r2AccountId: process.env.R2_ACCOUNT_ID || '',
     r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
     r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-    r2BucketName: process.env.R2_BUCKET_NAME || 'livecall-media-storage',
+    r2BucketName: process.env.R2_BUCKET_NAME || 'minglecall-bucket',
     r2PublicUrl: process.env.R2_PUBLIC_URL || '',
     dbMaxPoolSize: 50,
     dbIdleTimeoutSeconds: 30,

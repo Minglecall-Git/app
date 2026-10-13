@@ -437,7 +437,7 @@ CREATE TABLE IF NOT EXISTS public.system_configs (
     coin_to_usd_ratio NUMERIC DEFAULT 0.003,
     female_payout_ratio_usd NUMERIC DEFAULT 0.003,
     min_payout_threshold_usd INT DEFAULT 50,
-    r2_bucket_name TEXT DEFAULT 'datingappbucket',
+    r2_bucket_name TEXT DEFAULT 'minglecall-bucket',
     r2_max_image_size_mb INT DEFAULT 15,
     r2_max_video_size_mb INT DEFAULT 100,
     -- Per-user total storage quota for profile gallery videos (all videos combined)

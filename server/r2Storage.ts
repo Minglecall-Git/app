@@ -17,12 +17,27 @@ try {
   /* ignore */
 }
 
+/** Canonical default when R2_BUCKET_NAME is unset — match .env.example / production bucket. */
+export const DEFAULT_R2_BUCKET_NAME = 'minglecall-bucket';
+
 export interface R2CredentialsConfig {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
   bucketName?: string;
   publicUrl?: string;
+}
+
+/** Reject S3 API hosts — they are not public CDN bases (see resolvePublicMediaUrl). */
+function sanitizeR2PublicUrl(raw: string): string {
+  const clean = String(raw || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\/$/, '');
+  if (!clean) return '';
+  if (clean.includes('.r2.cloudflarestorage.com')) return '';
+  if (!(clean.startsWith('http://') || clean.startsWith('https://'))) return '';
+  return clean;
 }
 
 // Global active credentials cache
@@ -65,7 +80,7 @@ export async function uploadBufferToR2ServerSide(
   customConfig?: R2CredentialsConfig
 ): Promise<string> {
   const cfg = customConfig || getR2RuntimeConfig();
-  const bucketName = cfg.bucketName || 'livecall-media-storage';
+  const bucketName = cfg.bucketName || DEFAULT_R2_BUCKET_NAME;
 
   // Always cache locally so it can be served instantly
   saveLocalMediaBuffer(key, buffer, contentType);
@@ -101,8 +116,10 @@ export function getR2RuntimeConfig(): R2CredentialsConfig {
     accountId: clean(activeConfig.accountId || process.env.R2_ACCOUNT_ID || ''),
     accessKeyId: clean(activeConfig.accessKeyId || process.env.R2_ACCESS_KEY_ID || ''),
     secretAccessKey: clean(activeConfig.secretAccessKey || process.env.R2_SECRET_ACCESS_KEY || ''),
-    bucketName: clean(activeConfig.bucketName || process.env.R2_BUCKET_NAME || 'livecall-media-storage') || 'livecall-media-storage',
-    publicUrl: clean(activeConfig.publicUrl || process.env.R2_PUBLIC_URL || '').replace(/\/$/, ''),
+    bucketName:
+      clean(activeConfig.bucketName || process.env.R2_BUCKET_NAME || DEFAULT_R2_BUCKET_NAME) ||
+      DEFAULT_R2_BUCKET_NAME,
+    publicUrl: sanitizeR2PublicUrl(activeConfig.publicUrl || process.env.R2_PUBLIC_URL || ''),
   };
 }
 
@@ -452,7 +469,7 @@ export async function testR2Connectivity(customConfig?: R2CredentialsConfig): Pr
 }> {
   const startTime = performance.now();
   const cfg = { ...getR2RuntimeConfig(), ...(customConfig || {}) };
-  const bucket = cfg.bucketName || 'livecall-media-storage';
+  const bucket = cfg.bucketName || DEFAULT_R2_BUCKET_NAME;
   const accountId = cfg.accountId || '';
 
   if (!isR2Configured(cfg)) {
@@ -538,7 +555,7 @@ export async function generateR2PresignedUploadUrl(
   });
 
   const cfg = params.credentialsOverride || getR2RuntimeConfig();
-  const bucketName = cfg.bucketName || 'livecall-media-storage';
+  const bucketName = cfg.bucketName || DEFAULT_R2_BUCKET_NAME;
   const { filename, contentType, fileSize, category, ownerUserId, storageKey } = validated;
 
   const expiresInSeconds = 900; // 15 minutes upload window
@@ -624,7 +641,7 @@ export async function getR2ObjectStream(key: string, credentialsOverride?: R2Cre
   }
 
   const cfg = credentialsOverride || getR2RuntimeConfig();
-  const bucketName = cfg.bucketName || 'livecall-media-storage';
+  const bucketName = cfg.bucketName || DEFAULT_R2_BUCKET_NAME;
 
   if (!isR2Configured(cfg)) {
     return null;
@@ -828,7 +845,7 @@ export async function deleteObjectsByKeys(
   const cfg = opts?.credentialsOverride || getR2RuntimeConfig();
   if (!isR2Configured(cfg)) return { deletedCount: 0, deletedKeys: [] };
 
-  const bucketName = opts?.bucketName || cfg.bucketName || 'livecall-media-storage';
+  const bucketName = opts?.bucketName || cfg.bucketName || DEFAULT_R2_BUCKET_NAME;
   const batchSize = opts?.batchSize || 1000;
   const maxReturnedKeys = opts?.maxReturnedKeys || 2000;
 
@@ -876,7 +893,7 @@ export async function deleteObjectsByPrefix(
   const cfg = opts?.credentialsOverride || getR2RuntimeConfig();
   if (!isR2Configured(cfg)) return { deletedCount: 0, deletedKeys: [] };
 
-  const bucketName = opts?.bucketName || cfg.bucketName || 'livecall-media-storage';
+  const bucketName = opts?.bucketName || cfg.bucketName || DEFAULT_R2_BUCKET_NAME;
   const maxReturnedKeys = opts?.maxReturnedKeys || 2000;
 
   const client = getR2Client(cfg);

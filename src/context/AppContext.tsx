@@ -1349,9 +1349,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const session = data?.session as Session | null;
         if (session?.user?.id) {
           await applySupabaseSessionUser(session.user);
-        } else {
-          clearLocalAuthState();
         }
+        // Do NOT clearLocalAuthState() when session is missing here.
+        // Storage can be briefly empty before INITIAL_SESSION; clearing would
+        // sign the user out on every refresh. SIGNED_OUT handles real logouts.
       } catch (err) {
         console.warn('[Auth Rehydrate] bootstrap exception:', err);
       }
@@ -1378,6 +1379,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // Avoid fighting an in-progress hydrate from getSession()
           if (authHydratingRef.current && event === 'INITIAL_SESSION') return;
           await applySupabaseSessionUser(session.user);
+        }
+
+        // Explicit empty INITIAL_SESSION after storage checked — treat as logged out
+        if (event === 'INITIAL_SESSION' && !session?.user?.id) {
+          const { data: again } = await supabase.auth.getSession();
+          if (cancelled) return;
+          if (!again?.session?.user?.id) {
+            clearLocalAuthState();
+          }
         }
       });
       subscription = data.subscription;

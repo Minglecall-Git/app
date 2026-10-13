@@ -53,7 +53,7 @@ function r2Env() {
     accountId: clean(process.env.R2_ACCOUNT_ID),
     accessKeyId: clean(process.env.R2_ACCESS_KEY_ID),
     secretAccessKey: clean(process.env.R2_SECRET_ACCESS_KEY),
-    bucketName: clean(process.env.R2_BUCKET_NAME) || 'datingappbucket',
+    bucketName: clean(process.env.R2_BUCKET_NAME) || 'minglecall-bucket',
     publicUrl: clean(process.env.R2_PUBLIC_URL).replace(/\/$/, ''),
   };
 }

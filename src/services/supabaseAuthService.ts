@@ -751,7 +751,89 @@ export async function signInWithEmailPassword(
     return { success: false, error: 'Invalid email or password. Please check your credentials.' };
   }
 
-  // Prefer native Supabase Auth — exact password required (no hash fallback, no padding tricks)
+  // Prefer same-origin API (server secret key). Browser publishable keys can be
+  // stale after env/project swaps until a full Next restart + hard refresh.
+  const loginViaApi = async (): Promise<SupabaseAuthResult> => {
+    try {
+      const res = await apiFetch('/api/auth/login-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password }),
+      });
+
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (!contentType.includes('application/json')) {
+        return {
+          success: false,
+          error:
+            res.status === 403
+              ? 'Login blocked by Vercel security checkpoint. Disable Attack Challenge Mode for /api or allowlist the domain, then retry.'
+              : `Unable to connect to authentication server (HTTP ${res.status}, non-JSON response).`,
+        };
+      }
+
+      const data = await res.json();
+      if (res.ok && data.success && data.user) {
+        // Persist Auth tokens in the browser — required for refresh / rehydrate.
+        if (data.session?.access_token && data.session?.refresh_token) {
+          if (!isSupabaseConfigured()) {
+            return {
+              success: false,
+              error:
+                'Supabase browser client is not configured (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY). Restart the dev server after updating .env.local.',
+            };
+          }
+          const { data: setData, error: sessionError } = await supabase.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          });
+          if (sessionError || !setData.session) {
+            console.warn(
+              'Could not persist auth session after password login:',
+              sessionError?.message || 'no session'
+            );
+            return {
+              success: false,
+              error:
+                sessionError?.message ||
+                'Signed in on the server but the browser session could not be saved. Hard-refresh and try again.',
+            };
+          }
+        }
+        // Server already claimed active_session_id on login — do not revoke refresh
+        // tokens here (signOut scope=others can race and clear the session we just set).
+        const activeSessionId = await claimExclusiveLoginSession({
+          accessToken: data.session?.access_token || null,
+          knownSessionId: typeof data.activeSessionId === 'string' ? data.activeSessionId : null,
+          revokeOthers: false,
+        });
+        return {
+          success: true,
+          user: data.user,
+          needsOnboarding: !data.user.isOnboarded,
+          session: data.session,
+          activeSessionId: activeSessionId || undefined,
+        };
+      }
+      return {
+        success: false,
+        error: data.error || 'Invalid email or password. Please check your credentials.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error:
+          err?.message && String(err.message).length < 160
+            ? `Unable to connect to authentication server (${err.message}).`
+            : 'Unable to connect to authentication server.',
+      };
+    }
+  };
+
+  const apiResult = await loginViaApi();
+  if (apiResult.success) return apiResult;
+
+  // Fallback: browser Supabase client (useful if /api is briefly unavailable)
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -768,10 +850,13 @@ export async function signInWithEmailPassword(
               'Please verify your email with the 6-digit code we sent before signing in. You can also use Forgot Password.',
           };
         }
-        return {
-          success: false,
-          error: 'Invalid email or password. Please check your credentials.',
-        };
+        // Prefer the API error when both fail (often more accurate post key-cutover).
+        return apiResult.success === false && apiResult.error
+          ? apiResult
+          : {
+              success: false,
+              error: 'Invalid email or password. Please check your credentials.',
+            };
       }
 
       let dbProfile: any = null;
@@ -831,7 +916,6 @@ export async function signInWithEmailPassword(
         };
       }
 
-      // Auth OK but no profiles row — deleted / orphan Auth. Never invent a synthetic profile.
       await supabase.auth.signOut();
       return {
         success: false,
@@ -839,71 +923,11 @@ export async function signInWithEmailPassword(
       };
     } catch (err: any) {
       console.warn('Supabase signIn exception:', err);
-      return {
-        success: false,
-        error:
-          err?.message && String(err.message).length < 160
-            ? `Unable to connect to authentication server (${err.message}).`
-            : 'Unable to connect to authentication server. Check NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.',
-      };
+      return apiResult;
     }
   }
 
-  // Server Auth-only verification when client Supabase is not configured
-  try {
-    const res = await apiFetch('/api/auth/login-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, password }),
-    });
-
-    const contentType = (res.headers.get('content-type') || '').toLowerCase();
-    if (!contentType.includes('application/json')) {
-      return {
-        success: false,
-        error:
-          res.status === 403
-            ? 'Login blocked by Vercel security checkpoint. Disable Attack Challenge Mode for /api or allowlist the domain, then retry.'
-            : `Unable to connect to authentication server (HTTP ${res.status}, non-JSON response).`,
-      };
-    }
-
-    const data = await res.json();
-    if (res.ok && data.success && data.user) {
-      if (data.session?.access_token && data.session?.refresh_token && isSupabaseConfigured()) {
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        });
-        if (sessionError) {
-          console.warn('Could not persist auth session after password login:', sessionError.message);
-        }
-      }
-      const activeSessionId = await claimExclusiveLoginSession({
-        accessToken: data.session?.access_token || null,
-        knownSessionId: typeof data.activeSessionId === 'string' ? data.activeSessionId : null,
-      });
-      return {
-        success: true,
-        user: data.user,
-        needsOnboarding: !data.user.isOnboarded,
-        session: data.session,
-        activeSessionId: activeSessionId || undefined,
-      };
-    }
-    return {
-      success: false,
-      error: data.error || 'Invalid email or password. Please check your credentials.',
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      error:
-        err?.message && String(err.message).length < 160
-          ? `Unable to connect to authentication server (${err.message}).`
-          : 'Unable to connect to authentication server.',
-    };
-  }
+  return apiResult;
 }
 
 /**

@@ -66,7 +66,7 @@ export const ServerSetupWizard: React.FC<ServerSetupWizardProps> = ({ onComplete
     r2AccountId: '',
     r2AccessKeyId: '',
     r2SecretAccessKey: '',
-    r2BucketName: 'livecall-media-storage',
+    r2BucketName: 'minglecall-bucket',
     r2PublicUrl: '',
     smtpHost: 'smtp.mail.yahoo.com',
     smtpPort: 587,

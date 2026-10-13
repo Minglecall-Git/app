@@ -117,7 +117,7 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const accountId = clean(process.env.R2_ACCOUNT_ID);
     const accessKeyId = clean(process.env.R2_ACCESS_KEY_ID);
     const secretAccessKey = clean(process.env.R2_SECRET_ACCESS_KEY);
-    const bucketName = clean(process.env.R2_BUCKET_NAME) || 'datingappbucket';
+    const bucketName = clean(process.env.R2_BUCKET_NAME) || 'minglecall-bucket';
 
     const present = {
       NEXT_PUBLIC_SUPABASE_URL: Boolean(supabaseUrl),

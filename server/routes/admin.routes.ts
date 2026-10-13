@@ -994,12 +994,13 @@ export function createAdminRouter(ctx: ServerRuntime): Router {
           : undefined;
 
       if (nextUrl !== undefined) {
-        process.env.NEXT_PUBLIC_SUPABASE_URL = nextUrl;
+        // Do not assign process.env.NEXT_PUBLIC_* — Next webpack inlines those
+        // identifiers as string literals, which becomes `"…" = value` (SyntaxError).
         process.env.SUPABASE_URL = nextUrl;
         infraConfig.supabaseUrl = nextUrl;
       }
       if (nextPublishable !== undefined) {
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = nextPublishable;
+        process.env.SUPABASE_ANON_KEY = nextPublishable;
         (infraConfig as any).supabasePublishableKey = nextPublishable;
         infraConfig.supabaseAnonKey = nextPublishable;
       }
