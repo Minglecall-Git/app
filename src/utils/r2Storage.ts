@@ -328,12 +328,25 @@ async function putFileWithProgress(
         if (onProgress) onProgress(100);
         resolve();
       } else {
-        reject(new Error(`Storage PUT status ${xhr.status}`));
+        const body = String(xhr.responseText || '').slice(0, 180);
+        if (xhr.status === 403) {
+          reject(
+            new Error(
+              `R2 Access Denied (403) on direct PUT. Recreate the R2 S3 API token with Object Read & Write on this bucket, update .env.local, restart Next, and set bucket CORS for PUT. ${body}`
+            )
+          );
+        } else {
+          reject(new Error(`Storage PUT status ${xhr.status}${body ? `: ${body}` : ''}`));
+        }
       }
     };
 
     xhr.onerror = () => {
-      reject(new Error('Direct upload network/CORS error'));
+      reject(
+        new Error(
+          'Direct upload network/CORS error. In Cloudflare R2 bucket settings, allow CORS PUT from your app origin (AllowedMethods: GET, PUT, HEAD; AllowedHeaders: *).'
+        )
+      );
     };
 
     xhr.send(file);

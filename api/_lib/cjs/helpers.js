@@ -429,7 +429,10 @@ async function requireAuth(req) {
 
 function isAdminRole(role, email) {
   return (
-    role === 'admin' || email === 'admin@livecall.app' || email === 'superadmin@minglecall.com'
+    role === 'admin' ||
+    email === 'admin@livecall.app' ||
+    email === 'superadmin@minglecall.com' ||
+    email === 'sadmin@minglecall.com'
   );
 }
 

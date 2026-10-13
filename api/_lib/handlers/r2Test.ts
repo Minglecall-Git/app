@@ -74,6 +74,10 @@ async function r2ListObjectsProbe(opts: {
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
   const url = `https://${host}${canonicalUri}?${canonicalQuerystring}`;
+  const abort =
+    typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
+      ? AbortSignal.timeout(12_000)
+      : undefined;
   const response = await fetch(url, {
     method,
     headers: {
@@ -81,6 +85,7 @@ async function r2ListObjectsProbe(opts: {
       'x-amz-date': amzDate,
       Authorization: authorization,
     },
+    ...(abort ? { signal: abort } : {}),
   });
 
   if (response.ok) {
@@ -163,7 +168,10 @@ export default async function handler(req: VercelReq, res: VercelRes) {
     const role = String((profile && profile.role) || '').toLowerCase();
     const email = String((profile && profile.email) || authUser.email || '').toLowerCase();
     const isAdmin =
-      role === 'admin' || email === 'admin@livecall.app' || email === 'superadmin@minglecall.com';
+      role === 'admin' ||
+      email === 'admin@livecall.app' ||
+      email === 'superadmin@minglecall.com' ||
+      email === 'sadmin@minglecall.com';
     if (!isAdmin) {
       return send(res, 403, { success: false, message: 'Admin role required.' });
     }

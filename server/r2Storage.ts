@@ -11,10 +11,30 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 try {
   // Optional local .env — never crash serverless cold-start if dotenv is unavailable.
+  // Prefer .env.local (Next convention); do not override vars Next already injected.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  require('dotenv').config();
+  const dotenv = require('dotenv');
+  dotenv.config({ path: '.env.local' });
+  dotenv.config();
 } catch {
   /* ignore */
+}
+
+/** Optional Smithy handler — never top-level import (breaks Next webpack → HTML 500). */
+function createR2RequestHandler(): unknown {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('@smithy/node-http-handler');
+    const NodeHttpHandler = mod.NodeHttpHandler || mod.default;
+    if (!NodeHttpHandler) return undefined;
+    return new NodeHttpHandler({
+      connectionTimeout: 8_000,
+      requestTimeout: 8_000,
+    });
+  } catch (err) {
+    console.warn('[r2Storage] NodeHttpHandler unavailable, using default fetch handler:', err);
+    return undefined;
+  }
 }
 
 /** Canonical default when R2_BUCKET_NAME is unset — match .env.example / production bucket. */
@@ -447,14 +467,19 @@ export function getR2Client(configOverride?: R2CredentialsConfig): S3Client {
     throw new Error('Cloudflare R2 credentials (Account ID, Access Key ID, and Secret Access Key) are not fully configured.');
   }
 
-  // If using overrides or no cached client, instantiate
+  const endpoint = `https://${acc}.r2.cloudflarestorage.com`.replace(/\/+$/, '');
+  const requestHandler = createR2RequestHandler();
+
+  // Path-style endpoint — Cloudflare R2 S3 API (no trailing slash).
   return new S3Client({
     region: 'auto',
-    endpoint: `https://${acc}.r2.cloudflarestorage.com`,
+    endpoint,
+    forcePathStyle: true,
     credentials: {
       accessKeyId: key,
       secretAccessKey: sec,
     },
+    ...(requestHandler ? { requestHandler: requestHandler as any } : {}),
   });
 }
 
@@ -489,7 +514,15 @@ export async function testR2Connectivity(customConfig?: R2CredentialsConfig): Pr
       Bucket: bucket,
       MaxKeys: 1,
     });
-    await client.send(command);
+    const sendPromise = client.send(command);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        const err = new Error('R2 probe timed out after 10s');
+        (err as any).name = 'TimeoutError';
+        reject(err);
+      }, 10_000);
+    });
+    await Promise.race([sendPromise, timeoutPromise]);
 
     const latencyMs = Math.round(performance.now() - startTime);
     return {
@@ -502,11 +535,22 @@ export async function testR2Connectivity(customConfig?: R2CredentialsConfig): Pr
   } catch (err: any) {
     const latencyMs = Math.round(performance.now() - startTime);
     let errMsg = err.message || 'Unknown R2 connection error';
-    
-    if (err.name === 'NoSuchBucket' || errMsg.includes('NoSuchBucket') || err.$metadata?.httpStatusCode === 404) {
-      errMsg = `Bucket "${bucket}" was not found in Cloudflare R2 account "${accountId}". Please ensure you have created this bucket in Cloudflare Dashboard.`;
-    } else if (err.name === 'InvalidAccessKeyId' || err.$metadata?.httpStatusCode === 403) {
-      errMsg = `Authentication failed (403 Forbidden). Please check that your R2 Access Key ID and Secret Access Key have Admin/Read/Write permissions on bucket "${bucket}".`;
+    const status = err.$metadata?.httpStatusCode;
+
+    if (err.name === 'TimeoutError' || err.name === 'AbortError' || /aborted|timed out/i.test(errMsg)) {
+      errMsg = `R2 connection timed out after 10s contacting account "${accountId}". Check network/firewall and R2 credentials.`;
+    } else if (err.name === 'NoSuchBucket' || errMsg.includes('NoSuchBucket') || status === 404) {
+      errMsg = `Bucket "${bucket}" was not found in Cloudflare R2 account "${accountId}". Create the bucket or fix R2_BUCKET_NAME.`;
+    } else if (
+      err.name === 'InvalidAccessKeyId' ||
+      err.name === 'AccessDenied' ||
+      errMsg.includes('Access Denied') ||
+      status === 403
+    ) {
+      errMsg =
+        `R2 Access Denied (403) for bucket "${bucket}". In Cloudflare → R2 → Manage R2 API Tokens, create a new S3 API token with ` +
+        `Object Read & Write (and Admin Read for list) on "${bucket}", then update R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY in .env.local and restart Next.js. ` +
+        `Confirm R2_ACCOUNT_ID matches the account that owns the bucket.`;
     }
 
     return {
@@ -515,7 +559,8 @@ export async function testR2Connectivity(customConfig?: R2CredentialsConfig): Pr
       bucket,
       endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
       latencyMs,
-      corsHelp: 'Make sure CORS is enabled on your R2 bucket for direct browser uploads (AllowedOrigins: ["*"], AllowedMethods: ["GET", "PUT", "HEAD"], AllowedHeaders: ["*"]).',
+      corsHelp:
+        'For browser uploads, set bucket CORS: AllowedOrigins ["*"] (or your site origin), AllowedMethods ["GET","PUT","HEAD"], AllowedHeaders ["*"], ExposeHeaders ["ETag"].',
     };
   }
 }

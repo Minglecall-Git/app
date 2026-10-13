@@ -63,7 +63,17 @@ const nextConfig = {
     if (!dev) config.optimization.minimize = false;
     return config;
   },
-  serverExternalPackages: ['@upstash/redis', 'livekit-server-sdk', 'express', 'ws', 'nodemailer', 'bcryptjs'],
+  serverExternalPackages: [
+    '@upstash/redis',
+    'livekit-server-sdk',
+    'express',
+    'ws',
+    'nodemailer',
+    'bcryptjs',
+    '@aws-sdk/client-s3',
+    '@aws-sdk/s3-request-presigner',
+    '@smithy/node-http-handler',
+  ],
 };
 
 export default nextConfig;

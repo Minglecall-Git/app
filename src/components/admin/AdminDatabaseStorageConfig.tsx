@@ -586,12 +586,15 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
   const handleTestR2Connection = async () => {
     setIsTestingR2(true);
     setR2ConnResult(null);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 25_000);
     try {
       // Always use server/Vercel env — do not send form secrets (masked or typed).
       const res = await authFetch('/api/r2-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
+        signal: controller.signal,
       });
 
       const text = await res.text();
@@ -604,8 +607,8 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
           success: false,
           message:
             res.status === 404
-              ? 'R2 test route missing (404). Redeploy the latest commit that includes /api/r2-test.'
-              : `R2 API returned non-JSON (${res.status}). ${snippet || 'Check Vercel Function logs for api/r2-test.'}`,
+              ? 'R2 test route missing (404). Restart the Next.js server so /api/r2-test is registered.'
+              : `R2 API returned non-JSON (${res.status}). ${snippet || 'Check server logs for /api/r2-test.'}`,
         };
       }
 
@@ -621,12 +624,14 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
         showToast('R2 Connection Notice 🔴', data?.message || 'Failed to reach R2 bucket', 'error');
       }
     } catch (e: any) {
-      setR2ConnResult({
-        success: false,
-        message: e.message || 'Network error communicating with R2 diagnostic service.',
-      });
-      showToast('R2 Test Error', e.message, 'error');
+      const aborted = e?.name === 'AbortError' || controller.signal.aborted;
+      const message = aborted
+        ? 'R2 connection test timed out after 25s. Fully restart `next dev` (stop + start), confirm R2_* in .env.local, then retry.'
+        : e.message || 'Network error communicating with R2 diagnostic service.';
+      setR2ConnResult({ success: false, message });
+      showToast('R2 Test Error', message, 'error');
     } finally {
+      window.clearTimeout(timeoutId);
       setIsTestingR2(false);
     }
   };

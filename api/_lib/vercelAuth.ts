@@ -172,7 +172,8 @@ export async function requireAdminFromBearer(
   const isAdmin =
     auth.role === 'admin' ||
     auth.email === 'admin@livecall.app' ||
-    auth.email === 'superadmin@minglecall.com';
+    auth.email === 'superadmin@minglecall.com' ||
+    auth.email === 'sadmin@minglecall.com';
 
   if (!isAdmin) {
     return {
@@ -204,7 +205,8 @@ export async function requireTeamLeaderFromBearer(
     role === 'agency_manager' ||
     role === 'admin' ||
     auth.email === 'admin@livecall.app' ||
-    auth.email === 'superadmin@minglecall.com';
+    auth.email === 'superadmin@minglecall.com' ||
+    auth.email === 'sadmin@minglecall.com';
 
   if (!allowed) {
     return {

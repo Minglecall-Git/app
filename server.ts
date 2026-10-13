@@ -95,6 +95,7 @@ import {
 import { globalApiLimiter, sensitiveActionLimiter } from './server/middleware/rateLimit';
 import { VIRTUAL_GIFTS } from './src/constants/appDefaults';
 
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 interface ConnectedSocket {
@@ -2066,6 +2067,24 @@ async function startServer(): Promise<express.Express> {
   // =========================================================================
   app.use('/api/auth', createAuthRouter(runtime));
   app.use('/api/storage', createStorageRouter(runtime));
+
+  // /api/r2-test is handled by app/api/r2-test/route.ts (JSON-safe Next route).
+  // Keep Express aliases for legacy/direct Node runs.
+  const handleR2Test = async (_req: express.Request, res: express.Response) => {
+    try {
+      const result = await testR2Connectivity();
+      return res.json({ ...result, source: 'environment' });
+    } catch (err: any) {
+      console.error('[api/r2-test express]', err);
+      return res.status(500).json({
+        success: false,
+        message: err?.message || 'Error testing Cloudflare R2 connectivity',
+      });
+    }
+  };
+  app.post('/api/r2-test', requireAdmin, handleR2Test);
+  app.get('/api/r2-test', requireAdmin, handleR2Test);
+
   app.use('/api/presence', createPresenceRouter(runtime));
   app.use('/api/creator', createCreatorRouter(runtime));
   app.use('/api/livekit', createLivekitRouter(runtime));
@@ -4305,6 +4324,15 @@ async function startServer(): Promise<express.Express> {
   });
 
 
+  // Unmatched /api/* must return JSON — otherwise Next's Express adapter waits until timeout.
+  app.use('/api', (req, res) => {
+    if (res.headersSent) return;
+    res.status(404).json({
+      success: false,
+      error: { message: `No route for ${req.method} ${req.originalUrl || req.url}`, code: 'NOT_FOUND' },
+    });
+  });
+
   // Legacy Express+Vite process only. Next.js (`next dev` / Vercel) calls getApp() and must not listen.
   if (IS_DIRECT_RUN && !IS_VERCEL) {
     if (process.env.NODE_ENV !== 'production') {
@@ -4334,6 +4362,12 @@ async function startServer(): Promise<express.Express> {
 
 let cachedApp: express.Express | null = null;
 let bootPromise: Promise<express.Express> | null = null;
+
+/** Clear Express cache so Next/dev HMR picks up new routes (e.g. /api/r2-test). */
+export function resetAppCache() {
+  cachedApp = null;
+  bootPromise = null;
+}
 
 export async function getApp(): Promise<express.Express> {
   if (cachedApp) return cachedApp;
