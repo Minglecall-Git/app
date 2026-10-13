@@ -1,65 +1,131 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+'use client';
+
+import React, { useState, useEffect, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
-import { DiscoveryGrid } from './components/discovery/DiscoveryGrid';
-import { SwipeMatchDeck } from './components/discovery/SwipeMatchDeck';
-import { ProfileDetailModal } from './components/discovery/ProfileDetailModal';
-import { QuickMatchRoulette } from './components/discovery/QuickMatchRoulette';
-import { UserProfilePage } from './components/profile/UserProfilePage';
-import { PublicProfilePage } from './components/profile/PublicProfilePage';
-import { HomePage } from './components/home/HomePage';
-import { PolicyDetailModal } from './components/home/PolicyDetailModal';
-import { PostCallRatingModal } from './components/videocall/PostCallRatingModal';
-import { CoinStoreModal } from './components/store/CoinStoreModal';
-import { AuthModal } from './components/auth/AuthModal';
-import { DailyRewardsModal } from './components/rewards/DailyRewardsModal';
-import { ChatDrawer } from './components/chat/ChatDrawer';
-import { FriendsFavoritesDrawer } from './components/social/FriendsFavoritesDrawer';
-import { BlockReportModal } from './components/social/BlockReportModal';
 import { GlobalBottomNav } from './components/navigation/GlobalBottomNav';
-import { PWAInstallPrompt } from './components/PWAInstallPrompt';
-import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { ServerSetupWizard } from './components/setup/ServerSetupWizard';
 import { UserProfile } from './types';
 import { CheckCircle2, AlertTriangle, Info, AlertCircle, X } from 'lucide-react';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { isSetupLocation } from './navigation/appRoutes';
 import { useAppNavigation } from './navigation/useAppNavigation';
 
-/** Heavy screens — split so Vercel refresh does not parse admin/video on first paint. */
-const MomentsFeed = lazy(() =>
-  import('./components/social/MomentsFeed').then((m) => ({ default: m.MomentsFeed }))
-);
-const FemaleEarningsDashboard = lazy(() =>
-  import('./components/earnings/FemaleEarningsDashboard').then((m) => ({
-    default: m.FemaleEarningsDashboard,
-  }))
-);
-const FemaleCallLogsView = lazy(() =>
-  import('./components/earnings/FemaleCallLogsView').then((m) => ({
-    default: m.FemaleCallLogsView,
-  }))
-);
-const HostDashboard = lazy(() =>
-  import('./components/earnings/HostDashboard').then((m) => ({ default: m.HostDashboard }))
-);
-const AdminDashboard = lazy(() =>
-  import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
-);
-const TeamLeaderDashboard = lazy(() =>
-  import('./components/teamleader/TeamLeaderDashboard').then((m) => ({
-    default: m.TeamLeaderDashboard,
-  }))
-);
-const VideoCallStudio = lazy(() =>
-  import('./components/videocall/VideoCallStudio').then((m) => ({ default: m.VideoCallStudio }))
-);
-
 const RouteFallback: React.FC = () => (
   <div className="flex min-h-[40vh] items-center justify-center text-sm text-app-muted">Loading…</div>
 );
 
-
+/** Route-level screens — compiled on demand in `next dev` instead of the whole SPA.
+ * next/dynamic requires options as an object literal (not a shared variable). */
+const HomePage = dynamic(
+  () => import('./components/home/HomePage').then((m) => ({ default: m.HomePage })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const DiscoveryGrid = dynamic(
+  () => import('./components/discovery/DiscoveryGrid').then((m) => ({ default: m.DiscoveryGrid })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const SwipeMatchDeck = dynamic(
+  () => import('./components/discovery/SwipeMatchDeck').then((m) => ({ default: m.SwipeMatchDeck })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const ProfileDetailModal = dynamic(
+  () => import('./components/discovery/ProfileDetailModal').then((m) => ({ default: m.ProfileDetailModal })),
+  { ssr: false }
+);
+const QuickMatchRoulette = dynamic(
+  () => import('./components/discovery/QuickMatchRoulette').then((m) => ({ default: m.QuickMatchRoulette })),
+  { ssr: false }
+);
+const UserProfilePage = dynamic(
+  () => import('./components/profile/UserProfilePage').then((m) => ({ default: m.UserProfilePage })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const PublicProfilePage = dynamic(
+  () => import('./components/profile/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage })),
+  { ssr: false }
+);
+const MomentsFeed = dynamic(
+  () => import('./components/social/MomentsFeed').then((m) => ({ default: m.MomentsFeed })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const FemaleEarningsDashboard = dynamic(
+  () =>
+    import('./components/earnings/FemaleEarningsDashboard').then((m) => ({
+      default: m.FemaleEarningsDashboard,
+    })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const FemaleCallLogsView = dynamic(
+  () => import('./components/earnings/FemaleCallLogsView').then((m) => ({ default: m.FemaleCallLogsView })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const HostDashboard = dynamic(
+  () => import('./components/earnings/HostDashboard').then((m) => ({ default: m.HostDashboard })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const AdminDashboard = dynamic(
+  () => import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const TeamLeaderDashboard = dynamic(
+  () =>
+    import('./components/teamleader/TeamLeaderDashboard').then((m) => ({
+      default: m.TeamLeaderDashboard,
+    })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const VideoCallStudio = dynamic(
+  () => import('./components/videocall/VideoCallStudio').then((m) => ({ default: m.VideoCallStudio })),
+  { ssr: false }
+);
+const PostCallRatingModal = dynamic(
+  () => import('./components/videocall/PostCallRatingModal').then((m) => ({ default: m.PostCallRatingModal })),
+  { ssr: false }
+);
+const CoinStoreModal = dynamic(
+  () => import('./components/store/CoinStoreModal').then((m) => ({ default: m.CoinStoreModal })),
+  { ssr: false }
+);
+const AuthModal = dynamic(
+  () => import('./components/auth/AuthModal').then((m) => ({ default: m.AuthModal })),
+  { ssr: false }
+);
+const DailyRewardsModal = dynamic(
+  () => import('./components/rewards/DailyRewardsModal').then((m) => ({ default: m.DailyRewardsModal })),
+  { ssr: false }
+);
+const ChatDrawer = dynamic(
+  () => import('./components/chat/ChatDrawer').then((m) => ({ default: m.ChatDrawer })),
+  { ssr: false }
+);
+const FriendsFavoritesDrawer = dynamic(
+  () =>
+    import('./components/social/FriendsFavoritesDrawer').then((m) => ({
+      default: m.FriendsFavoritesDrawer,
+    })),
+  { ssr: false }
+);
+const BlockReportModal = dynamic(
+  () => import('./components/social/BlockReportModal').then((m) => ({ default: m.BlockReportModal })),
+  { ssr: false }
+);
+const OnboardingWizard = dynamic(
+  () => import('./components/onboarding/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard })),
+  { ssr: false }
+);
+const ServerSetupWizard = dynamic(
+  () => import('./components/setup/ServerSetupWizard').then((m) => ({ default: m.ServerSetupWizard })),
+  { ssr: false, loading: () => <RouteFallback /> }
+);
+const PolicyDetailModal = dynamic(
+  () => import('./components/home/PolicyDetailModal').then((m) => ({ default: m.PolicyDetailModal })),
+  { ssr: false }
+);
+const PWAInstallPrompt = dynamic(
+  () => import('./components/PWAInstallPrompt').then((m) => ({ default: m.PWAInstallPrompt })),
+  { ssr: false }
+);
 
 const MainApp: React.FC = () => {
   const {
@@ -99,7 +165,6 @@ const MainApp: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Keep setup flag in sync with URL (pathname / legacy hash) without pushing history.
   const [isSetupRoute, setIsSetupRoute] = useState<boolean>(() => isSetupLocation());
 
   useEffect(() => {
@@ -115,13 +180,14 @@ const MainApp: React.FC = () => {
     };
   }, [activeTab]);
 
-  // Automatically kick out from admin/team_leader tab if permissions do not match
-  // Use replaceTab so auth redirects do not pollute / loop history.
   useEffect(() => {
     if (activeTab === 'admin' && (!isLoggedIn || currentUser.role !== 'admin')) {
       replaceTab('home');
     }
-    if (activeTab === 'team_leader' && (!isLoggedIn || (currentUser.role !== 'team_leader' && currentUser.role !== 'admin'))) {
+    if (
+      activeTab === 'team_leader' &&
+      (!isLoggedIn || (currentUser.role !== 'team_leader' && currentUser.role !== 'admin'))
+    ) {
       replaceTab('home');
     }
   }, [activeTab, isLoggedIn, currentUser.role, replaceTab]);
@@ -156,7 +222,6 @@ const MainApp: React.FC = () => {
     setSelectedDeckUser(null);
   };
 
-  /** Close drawers/modals; soft-clear public profile URL without history.back race. */
   const handleCloseOverlays = () => {
     dismissTransientOverlays();
     if (viewingProfileId) {
@@ -174,25 +239,26 @@ const MainApp: React.FC = () => {
     openPublicProfile(id);
   };
 
-  // Dedicated full-screen Server Setup Wizard when accessing /server-setup
   if (isSetupRoute || activeTab === 'server_setup') {
     return (
-      <ServerSetupWizard
-        onExit={() => {
-          setIsSetupRoute(false);
-          if (window.location.hash) {
-            window.location.hash = '';
-          }
-          replaceTab('home');
-        }}
-        onComplete={() => {
-          setIsSetupRoute(false);
-          if (window.location.hash) {
-            window.location.hash = '';
-          }
-          replaceTab('home');
-        }}
-      />
+      <Suspense fallback={<RouteFallback />}>
+        <ServerSetupWizard
+          onExit={() => {
+            setIsSetupRoute(false);
+            if (window.location.hash) {
+              window.location.hash = '';
+            }
+            replaceTab('home');
+          }}
+          onComplete={() => {
+            setIsSetupRoute(false);
+            if (window.location.hash) {
+              window.location.hash = '';
+            }
+            replaceTab('home');
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -217,7 +283,6 @@ const MainApp: React.FC = () => {
         isShellLayout ? 'h-dvh max-h-dvh overflow-hidden' : 'min-h-screen'
       }`}
     >
-      {/* App Header */}
       <Header
         activeTab={activeTab}
         setActiveTab={navigateTab}
@@ -243,7 +308,6 @@ const MainApp: React.FC = () => {
         }}
       />
 
-      {/* Main View Content — shell layouts (admin / TL / profile) own their own scroll panes */}
       <main
         className={`flex-1 min-h-0 app-fade-up ${
           isShellLayout
@@ -253,39 +317,39 @@ const MainApp: React.FC = () => {
               : 'pb-6'
         }`}
       >
-        {activeTab === 'home' && (
-          <HomePage
-            onStartCall={(id) => startCall(id)}
-            onOpenChat={(id) => handleOpenChat(id)}
-            onOpenMatch={() => setIsMatchOpen(true)}
-            onOpenStore={() => setIsStoreOpen(true)}
-            onOpenAuth={(mode) => handleOpenAuth(mode || 'register')}
-            onNavigateToTab={(tab) => navigateTab(tab)}
-          />
-        )}
-
-        {activeTab === 'discovery' && (
-          <DiscoveryGrid
-            onStartCall={(id) => startCall(id)}
-            onOpenChat={(id) => setChatUserId(id)}
-            onOpenMatch={() => setIsMatchOpen(true)}
-            onNavigateToSwipe={() => navigateTab('swipe')}
-          />
-        )}
-
-        {activeTab === 'swipe' && (
-          <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-            <SwipeMatchDeck onOpenDetailModal={(user) => setSelectedDeckUser(user)} />
-            <ProfileDetailModal
-              user={selectedDeckUser}
-              onClose={() => setSelectedDeckUser(null)}
+        <Suspense fallback={<RouteFallback />}>
+          {activeTab === 'home' && (
+            <HomePage
               onStartCall={(id) => startCall(id)}
               onOpenChat={(id) => handleOpenChat(id)}
+              onOpenMatch={() => setIsMatchOpen(true)}
+              onOpenStore={() => setIsStoreOpen(true)}
+              onOpenAuth={(mode) => handleOpenAuth(mode || 'register')}
+              onNavigateToTab={(tab) => navigateTab(tab)}
             />
-          </div>
-        )}
+          )}
 
-        <Suspense fallback={<RouteFallback />}>
+          {activeTab === 'discovery' && (
+            <DiscoveryGrid
+              onStartCall={(id) => startCall(id)}
+              onOpenChat={(id) => setChatUserId(id)}
+              onOpenMatch={() => setIsMatchOpen(true)}
+              onNavigateToSwipe={() => navigateTab('swipe')}
+            />
+          )}
+
+          {activeTab === 'swipe' && (
+            <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+              <SwipeMatchDeck onOpenDetailModal={(user) => setSelectedDeckUser(user)} />
+              <ProfileDetailModal
+                user={selectedDeckUser}
+                onClose={() => setSelectedDeckUser(null)}
+                onStartCall={(id) => startCall(id)}
+                onOpenChat={(id) => handleOpenChat(id)}
+              />
+            </div>
+          )}
+
           {activeTab === 'moments' && (
             <MomentsFeed
               onStartCall={(id) => startCall(id)}
@@ -332,125 +396,128 @@ const MainApp: React.FC = () => {
             )}
 
           {activeTab === 'admin' && isLoggedIn && currentUser.role === 'admin' && <AdminDashboard />}
-        </Suspense>
 
-        {activeTab === 'profile' && (
-          <UserProfilePage
-            onOpenStore={() => setIsStoreOpen(true)}
-            onOpenChat={(id) => handleOpenChat(id)}
-            onNavigateToTab={(tab) => navigateTab(tab)}
-          />
-        )}
+          {activeTab === 'profile' && (
+            <UserProfilePage
+              onOpenStore={() => setIsStoreOpen(true)}
+              onOpenChat={(id) => handleOpenChat(id)}
+              onNavigateToTab={(tab) => navigateTab(tab)}
+            />
+          )}
+        </Suspense>
       </main>
 
       {viewingProfileId && (
-        <PublicProfilePage
-          userId={viewingProfileId}
-          onClose={() => closePublicProfile()}
-          onStartCall={(id) => {
-            closePublicProfile();
-            startCall(id);
-          }}
-          onOpenChat={(id) => {
-            closePublicProfile();
-            handleOpenChat(id);
-          }}
-          onEditOwnProfile={() => {
-            closePublicProfile();
-            navigateTab('profile');
-          }}
-        />
+        <Suspense fallback={null}>
+          <PublicProfilePage
+            userId={viewingProfileId}
+            onClose={() => closePublicProfile()}
+            onStartCall={(id) => {
+              closePublicProfile();
+              startCall(id);
+            }}
+            onOpenChat={(id) => {
+              closePublicProfile();
+              handleOpenChat(id);
+            }}
+            onEditOwnProfile={() => {
+              closePublicProfile();
+              navigateTab('profile');
+            }}
+          />
+        </Suspense>
       )}
 
       {!isShellLayout && (
-      <footer className="h-8 bg-app-surface border-t border-app px-4 sm:px-8 flex items-center justify-between text-[10px] text-app-muted">
-        <div className="flex gap-4 items-center">
-          <span>LiveCall</span>
-          <span className="hidden sm:inline">Video ready</span>
-          <span className="hidden md:inline">{users.length} people nearby</span>
-        </div>
-        <div className="flex gap-4 items-center">
-          <span className="flex items-center gap-1.5 text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            Live
-          </span>
-          <span className="hidden sm:inline text-app-muted">{currentUtcTime}</span>
-        </div>
-      </footer>
+        <footer className="h-8 bg-app-surface border-t border-app px-4 sm:px-8 flex items-center justify-between text-[10px] text-app-muted">
+          <div className="flex gap-4 items-center">
+            <span>LiveCall</span>
+            <span className="hidden sm:inline">Video ready</span>
+            <span className="hidden md:inline">{users.length} people nearby</span>
+          </div>
+          <div className="flex gap-4 items-center">
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              Live
+            </span>
+            <span className="hidden sm:inline text-app-muted">{currentUtcTime}</span>
+          </div>
+        </footer>
       )}
 
-      {/* Global Active Call Studio */}
       {activeCall && (
         <Suspense fallback={null}>
           <VideoCallStudio onOpenStore={() => setIsStoreOpen(true)} />
         </Suspense>
       )}
 
-      {/* Global Modals */}
-      <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        initialMode={authInitialMode}
-        onNavigateToTab={(tab) => navigateTab(tab)}
-      />
-      {isOnboardingOpen && currentUser && (
-        <OnboardingWizard
-          user={currentUser}
-          onComplete={(updated) => {
-            updateUserProfile(updated.id, updated);
-            setIsOnboardingOpen(false);
+      <Suspense fallback={null}>
+        <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
+        <AuthModal
+          isOpen={isAuthOpen}
+          onClose={() => setIsAuthOpen(false)}
+          initialMode={authInitialMode}
+          onNavigateToTab={(tab) => navigateTab(tab)}
+        />
+        {isOnboardingOpen && currentUser && (
+          <OnboardingWizard
+            user={currentUser}
+            onComplete={(updated) => {
+              updateUserProfile(updated.id, updated);
+              setIsOnboardingOpen(false);
+            }}
+            onCancel={() => setIsOnboardingOpen(false)}
+          />
+        )}
+        <DailyRewardsModal
+          isOpen={isDailyRewardsModalOpen}
+          onClose={closeDailyRewardsModal}
+          onNavigateTab={(tab) => navigateTab(tab)}
+        />
+        <BlockReportModal
+          key={
+            blockReportModal ? `${blockReportModal.userId}-${blockReportModal.action}` : 'closed'
+          }
+          isOpen={!!blockReportModal}
+          onClose={closeBlockReportModal}
+          targetUserId={blockReportModal?.userId ?? null}
+          initialAction={blockReportModal?.action ?? 'report'}
+        />
+        <QuickMatchRoulette
+          isOpen={isMatchOpen}
+          onClose={() => setIsMatchOpen(false)}
+          onOpenChat={(id) => handleOpenChat(id)}
+        />
+        <FriendsFavoritesDrawer
+          isOpen={isSocialCircleOpen}
+          onClose={() => setIsSocialCircleOpen(false)}
+          onStartCall={(id) => startCall(id)}
+          onOpenChat={(id) => setChatUserId(id)}
+        />
+        <ChatDrawer
+          isOpen={isChatOpen || chatUserId !== null}
+          userId={chatUserId}
+          onClose={() => {
+            setIsChatOpen(false);
+            setChatUserId(null);
           }}
-          onCancel={() => setIsOnboardingOpen(false)}
+          onStartCall={(id) => startCall(id)}
+          onOpenProfile={(id) => openProfileAndClear(id)}
         />
-      )}
-      <DailyRewardsModal
-        isOpen={isDailyRewardsModalOpen}
-        onClose={closeDailyRewardsModal}
-        onNavigateTab={(tab) => navigateTab(tab)}
-      />
-      <BlockReportModal
-        key={blockReportModal ? `${blockReportModal.userId}-${blockReportModal.action}` : 'closed'}
-        isOpen={!!blockReportModal}
-        onClose={closeBlockReportModal}
-        targetUserId={blockReportModal?.userId ?? null}
-        initialAction={blockReportModal?.action ?? 'report'}
-      />
-      <QuickMatchRoulette
-        isOpen={isMatchOpen}
-        onClose={() => setIsMatchOpen(false)}
-        onOpenChat={(id) => handleOpenChat(id)}
-      />
-      <FriendsFavoritesDrawer
-        isOpen={isSocialCircleOpen}
-        onClose={() => setIsSocialCircleOpen(false)}
-        onStartCall={(id) => startCall(id)}
-        onOpenChat={(id) => setChatUserId(id)}
-      />
-      <ChatDrawer
-        isOpen={isChatOpen || chatUserId !== null}
-        userId={chatUserId}
-        onClose={() => {
-          setIsChatOpen(false);
-          setChatUserId(null);
-        }}
-        onStartCall={(id) => startCall(id)}
-        onOpenProfile={(id) => openProfileAndClear(id)}
-      />
-      <PolicyDetailModal onNavigateToTab={(tab) => navigateTab(tab)} />
-      {pendingRatingCall && (
-        <PostCallRatingModal
-          creatorId={pendingRatingCall.creatorId}
-          creatorName={pendingRatingCall.creatorName}
-          creatorAvatar={pendingRatingCall.creatorAvatar}
-          callLogId={pendingRatingCall.callLogId || undefined}
-          durationSeconds={pendingRatingCall.durationSeconds}
-          ratingRequestMessageId={pendingRatingCall.ratingRequestMessageId}
-          onClose={() => setPendingRatingCall(null)}
-        />
-      )}
+        <PolicyDetailModal onNavigateToTab={(tab) => navigateTab(tab)} />
+        {pendingRatingCall && (
+          <PostCallRatingModal
+            creatorId={pendingRatingCall.creatorId}
+            creatorName={pendingRatingCall.creatorName}
+            creatorAvatar={pendingRatingCall.creatorAvatar}
+            callLogId={pendingRatingCall.callLogId || undefined}
+            durationSeconds={pendingRatingCall.durationSeconds}
+            ratingRequestMessageId={pendingRatingCall.ratingRequestMessageId}
+            onClose={() => setPendingRatingCall(null)}
+          />
+        )}
+      </Suspense>
 
-      {/* Global Bottom Sticky Navigation — hidden entirely during 1-on-1 call */}
       {isLoggedIn && !activeCall && (
         <GlobalBottomNav
           activeTab={activeTab}
@@ -464,10 +531,12 @@ const MainApp: React.FC = () => {
         />
       )}
 
-      {/* PWA Install Banner Prompt — hide during call so it never covers End Call */}
-      {!activeCall && <PWAInstallPrompt />}
+      {!activeCall && (
+        <Suspense fallback={null}>
+          <PWAInstallPrompt />
+        </Suspense>
+      )}
 
-      {/* Toast Notification Banner - Positioned directly below top header for clear visibility in mobile & desktop */}
       {toast && (
         <div
           id="global-toast-alert"
@@ -478,13 +547,12 @@ const MainApp: React.FC = () => {
               toast.type === 'success'
                 ? 'bg-[#0b1b14]/95 border-emerald-500/70 text-emerald-100 shadow-emerald-950/50'
                 : toast.type === 'error'
-                ? 'bg-[#220d13]/95 border-rose-500/70 text-rose-100 shadow-rose-950/50'
-                : toast.type === 'warning'
-                ? 'bg-[#231808]/95 border-amber-500/70 text-amber-100 shadow-amber-950/50'
-                : 'bg-[#101420]/95 border-sky-500/70 text-sky-100 shadow-sky-950/50'
+                  ? 'bg-[#220d13]/95 border-rose-500/70 text-rose-100 shadow-rose-950/50'
+                  : toast.type === 'warning'
+                    ? 'bg-[#231808]/95 border-amber-500/70 text-amber-100 shadow-amber-950/50'
+                    : 'bg-[#101420]/95 border-sky-500/70 text-sky-100 shadow-sky-950/50'
             }`}
           >
-            {/* Type Indicator Icon */}
             <div className="shrink-0 mt-0.5">
               {toast.type === 'success' ? (
                 <div className="w-7 h-7 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
@@ -505,7 +573,6 @@ const MainApp: React.FC = () => {
               )}
             </div>
 
-            {/* Alert Message Content */}
             <div className="flex-1 min-w-0 pr-1 space-y-0.5">
               <h4 className="font-extrabold text-xs sm:text-sm text-white tracking-tight flex items-center space-x-1.5">
                 <span>{toast.title}</span>
@@ -513,7 +580,6 @@ const MainApp: React.FC = () => {
               <p className="leading-snug text-[11px] sm:text-xs opacity-90 break-words">{toast.message}</p>
             </div>
 
-            {/* Quick Dismiss Button */}
             <button
               onClick={hideToast}
               className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"

@@ -1,6 +1,6 @@
 /**
  * Upstash Redis — server-only. Never import from client components.
- * Keys: presence:{userId}, profile:{userId}, rate:{userId}:{endpoint}, call:{callId}
+ * Keys: presence:{userId}, profile:{userId}, rate:{userId}:{endpoint}, call:{callId}, signup:{email}
  *
  * Credential order matches api/_lib/cjs/redisEnv.js:
  * UPSTASH_REDIS_REST_* , then Vercel KV_REST_API_* , then https REDIS_URL / KV_URL.
@@ -71,6 +71,54 @@ export function rateLimitKey(userId: string, endpoint: string): string {
 
 export function callStateKey(callId: string): string {
   return `call:${callId}`;
+}
+
+/** In-progress signup credentials (hashed password + metadata) — 1h TTL, keyed by normalized email. */
+export const PENDING_SIGNUP_TTL_SEC = 60 * 60;
+
+export type PendingSignupRecord = {
+  passwordHash: string;
+  name?: string;
+  role?: string;
+  updatedAt: number;
+};
+
+export function pendingSignupKey(email: string): string {
+  const clean = String(email || '')
+    .trim()
+    .toLowerCase();
+  return `signup:${clean}`;
+}
+
+export async function setPendingSignup(
+  email: string,
+  payload: { passwordHash: string; name?: string; role?: string }
+): Promise<boolean> {
+  const client = getRedis();
+  if (!client) return false;
+  const record: PendingSignupRecord = { ...payload, updatedAt: Date.now() };
+  await client.set(pendingSignupKey(email), JSON.stringify(record), { ex: PENDING_SIGNUP_TTL_SEC });
+  return true;
+}
+
+export async function getPendingSignup(email: string): Promise<PendingSignupRecord | null> {
+  const client = getRedis();
+  if (!client) return null;
+  const raw = await client.get<string>(pendingSignupKey(email));
+  if (!raw) return null;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed?.passwordHash) return null;
+    return parsed as PendingSignupRecord;
+  } catch {
+    return null;
+  }
+}
+
+export async function deletePendingSignup(email: string): Promise<void> {
+  const client = getRedis();
+  if (!client) return;
+  await client.del(pendingSignupKey(email));
 }
 
 export class RedisUnavailableError extends Error {

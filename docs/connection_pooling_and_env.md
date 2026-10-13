@@ -5,8 +5,7 @@
 - **One app:** Next.js App Router for localhost and Vercel.
 - **Dev:** `npm run dev` → `next dev` (loads `.env.local`).
 - **Prod:** Vercel Framework Preset **Next.js**, build `next build`, output directory empty.
-- **API:** `app/api/[[...path]]/route.ts` dispatches into `server/` via `getApp()`. Same-origin `/api/*`.
-- **Legacy only:** `npm run dev:legacy-express` runs `server.ts` as a process. Not the Vercel path.
+- **API:** Native `app/api/**/route.ts` handlers (same-origin `/api/*`). Unknown paths return JSON 404 from the optional catch-all.
 
 ## Supabase connection pooling
 

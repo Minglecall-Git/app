@@ -28,7 +28,7 @@
 | ----- | ----- | ----- |
 | **Host** | Next.js 15 App Router on Vercel | Pages, static assets, Node Route Handlers, cron entrypoints |
 | **UI** | React in `src/` via `app/client-app.tsx` (`ssr: false` shell) | Client SPA shell; deep links re-export the same shell |
-| **API** | `app/api/[[...path]]/route.ts` → `getApp()` / `server/` | Auth, business mutations, LiveKit tokens, R2 presigns, finance jobs |
+| **API** | Native `app/api/**/route.ts` (+ domain catch-alls) | Auth, business mutations, LiveKit tokens, R2 presigns, finance jobs |
 | **Database & Auth** | Supabase PostgreSQL + Auth | Authoritative data, RLS, chat history, profiles, wallets / call_logs |
 | **Realtime** | Supabase Realtime | Targeted chat, call signals, light live events (not Express `/ws` on Vercel) |
 | **Cache & Presence** | Upstash Redis (REST) | `presence:{userId}` leases, rate limits, hot ephemeral keys |
@@ -36,7 +36,7 @@
 | **Media Storage** | Cloudflare R2 (presigned PUT) | Avatars, gallery, verification; metadata in Supabase |
 | **Cron** | `vercel.json` crons | e.g. `/api/v1/finance/jobs/close-due-periods` (Hobby: daily) |
 
-**Legacy only:** `npm run dev:legacy-express` runs `server.ts` as a direct process for local dual-run. Do not add new Express WebSocket features. Production is Next on Vercel.
+**API runtime:** 100% native Next.js App Router Route Handlers. Express / `server.ts` / `expressAdapter` have been removed. Signaling = Supabase Realtime (not custom WebSockets).
 
 ## 3. Vercel & Next.js Configuration
 

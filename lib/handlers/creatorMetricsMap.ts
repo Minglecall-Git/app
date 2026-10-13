@@ -1,0 +1,30 @@
+export function mapCreatorMetricsRow(r: Record<string, unknown>) {
+  const id = String(r.creator_id || r.id || '');
+  return {
+    creatorId: id,
+    creatorName: String(r.creator_name || ''),
+    creatorAvatar: String(r.creator_avatar || ''),
+    agencyLeaderId: r.agency_leader_id || null,
+    agencyName: r.agency_name || null,
+    activeOnlineSeconds: Number(r.active_online_seconds || 0),
+    activeOnlineHours: Number(r.active_online_hours || 0),
+    coinsEarnedFromCalls: Number(r.coins_earned_from_calls || 0),
+    coinsEarnedFromGifts: Number(r.coins_earned_from_gifts || 0),
+    totalTargetCoins: Number(r.total_target_coins || 0),
+    currentStreakDays: Number(r.current_streak_days || 0),
+    streakBoostUntil: r.streak_boost_until || null,
+    lastActiveDate: r.last_active_date || null,
+    isReadyNowActive: Boolean(r.is_ready_now_active),
+    readyNowToggledAt: r.ready_now_toggled_at || null,
+    responseHealthScore: Number(r.response_health_score ?? 100),
+    performanceTier: String(r.performance_tier || 'bronze'),
+    totalCallsOffered: Number(r.total_calls_offered || 0),
+    totalCallsAnswered: Number(r.total_calls_answered || 0),
+    totalCallsDeclined: Number(r.total_calls_declined || 0),
+    totalCallsMissed: Number(r.total_calls_missed || 0),
+    firstCallBonusClaimedDate: r.first_call_bonus_claimed_date || null,
+    bonusEarnedCoins: Number(r.bonus_earned_coins || 0),
+    bonusEarnedUSD: Number(r.bonus_earned_usd || 0),
+    updatedAt: r.updated_at || null,
+  };
+}

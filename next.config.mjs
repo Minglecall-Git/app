@@ -66,7 +66,6 @@ const nextConfig = {
   serverExternalPackages: [
     '@upstash/redis',
     'livekit-server-sdk',
-    'express',
     'ws',
     'nodemailer',
     'bcryptjs',

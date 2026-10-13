@@ -1,10 +1,10 @@
-import type { WebSocket } from 'ws';
 import type { UserProfile } from '../src/types';
 
+/** Legacy socket slot shape (unused on Vercel; kept for ServerRuntime typing). */
 export interface ConnectedSocket {
   id: string;
   userId: string;
-  ws: WebSocket;
+  ws: { readyState: number };
 }
 
 export interface CallState {

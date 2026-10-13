@@ -7,7 +7,7 @@ alwaysApply: true
 # Tech Stack & Integrations
 
 - Frontend / API host: Next.js (App Router) on Vercel — React + Tailwind CSS
-- Legacy local: Node.js + Express (`server.ts`) for dual-run only; do not add new Express WS features
+- API: native Next.js Route Handlers under `app/api/**` only (Express / `server.ts` removed)
 - Database & Authentication: Supabase PostgreSQL + Supabase Auth
 - Database Realtime: Supabase Realtime (targeted channels; no global presence fan-out)
 - Cache & Presence: Upstash Redis (`presence:{userId}` TTL; never heartbeat to Postgres)
@@ -29,8 +29,8 @@ alwaysApply: true
        - Supabase Realtime subscriptions
        - Read-only queries protected by strict RLS
 
-   - Frontend to Node.js Backend:
-     All business-critical mutations and sensitive operations MUST go through Node.js Express REST APIs, including:
+   - Frontend to Next.js API (Route Handlers):
+     All business-critical mutations and sensitive operations MUST go through native `app/api/**` Route Handlers, including:
        - Creating or modifying user/business records
        - Sending messages
        - Matching logic
@@ -241,7 +241,7 @@ alwaysApply: true
 
 4. Verify API contracts between:
    - React fetchers
-   - Express routes
+   - Next.js Route Handlers
    - Backend services
    - Database operations
 
@@ -336,7 +336,7 @@ alwaysApply: true
 
    React
       ↓
-   Express API
+   Next Route Handler
       ↓
    Authenticate user
       ↓
@@ -421,7 +421,7 @@ alwaysApply: true
    - Verification images
    - Other approved media
 
-2. Do NOT stream or pipe large media files through the Node.js Express server unnecessarily.
+2. Do NOT stream or pipe large media files through the Next.js server unnecessarily.
 
 3. Use direct-to-R2 uploads through short-lived S3-compatible presigned URLs.
 

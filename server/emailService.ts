@@ -139,7 +139,7 @@ export function saveOtp(email: string, code: string, metadata?: { name?: string;
       if (!isSupabaseAdminConfigured()) return;
       const client = getSupabaseAdmin();
       if (!client) return;
-      const { saveOtpDb } = await import('../api/_lib/otpDb');
+      const { saveOtpDb } = await import('../lib/otpDb');
       await saveOtpDb(client, cleanEmail, code, metadata);
     } catch (e: any) {
       console.warn('[Email Service] auth_otps persist notice:', e?.message || e);
@@ -197,7 +197,7 @@ export async function verifyStoredOtpAsync(
       if (!isSupabaseAdminConfigured()) return mem;
       const client = getSupabaseAdmin();
       if (!client) return mem;
-      const { verifyOtpDb } = await import('../api/_lib/otpDb');
+      const { verifyOtpDb } = await import('../lib/otpDb');
       return await verifyOtpDb(client, email, inputCode);
     } catch (e: any) {
       return { success: false, error: e?.message || mem.error };
@@ -209,7 +209,7 @@ export async function verifyStoredOtpAsync(
     if (!isSupabaseAdminConfigured()) return mem;
     const client = getSupabaseAdmin();
     if (!client) return mem;
-    const { verifyOtpDb } = await import('../api/_lib/otpDb');
+    const { verifyOtpDb } = await import('../lib/otpDb');
     const db = await verifyOtpDb(client, email, inputCode);
     if (db.success) return db;
   } catch {
