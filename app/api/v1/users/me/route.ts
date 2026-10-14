@@ -44,7 +44,7 @@ function mapMeProfile(row: Record<string, any>) {
   };
 }
 
-/** GET /api/v1/users/me — native Next (no Express boot). */
+/** GET /api/v1/users/me — Next.js Route Handler. */
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAuth(req);

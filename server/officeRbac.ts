@@ -1,5 +1,5 @@
 /**
- * Office RBAC helpers for Express admin (mirrors api/_lib/cjs/officeRbacLib.cjs).
+ * Office RBAC helpers for admin Route Handlers and shared/officeRbac/features.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {

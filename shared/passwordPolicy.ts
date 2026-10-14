@@ -1,5 +1,5 @@
 /**
- * Production password policy — shared by React forms and Express auth routes.
+ * Production password policy — shared by React forms and /api auth Route Handlers.
  * Keep this module free of React / DOM / Node-only APIs so both sides can import it.
  */
 

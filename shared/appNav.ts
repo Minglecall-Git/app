@@ -1,6 +1,6 @@
 /**
  * App chrome navigation catalog, validation, and parity defaults.
- * Used by Express admin CMS routes and the React client.
+ * Used by admin CMS Route Handlers and the React client.
  */
 
 export type NavAudienceRole =

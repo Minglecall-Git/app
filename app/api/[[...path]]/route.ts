@@ -4,7 +4,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Fallback for unknown /api paths after Express catch-all removal.
+ * Fallback 404 for unknown /api paths (native Route Handlers only).
  * Prefer specific app/api route.ts handlers — they take precedence over this.
  */
 async function handle(req: NextRequest) {

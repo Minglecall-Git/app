@@ -122,7 +122,7 @@ export function mapProfileRow(p: Record<string, unknown> | null) {
   };
 }
 
-/** Express auth.routes JSON shape ({ success, error: string }). */
+/** Auth Route Handler JSON shape ({ success, error: string }). */
 export function authJson(data: Record<string, unknown>, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 }

@@ -14,13 +14,13 @@
 - Route Handlers and `server/` use **`@supabase/supabase-js`** against the project **HTTPS API URL** (`https://<ref>.supabase.co`).
 - That path hits **PostgREST**, which already pools. Do **not** put a Postgres `host:6543` string into `NEXT_PUBLIC_SUPABASE_URL`.
 - Client factories: `lib/nextAuth.ts`, `server/supabaseAdmin.ts`. Browser client: `src/lib/supabase.ts` (reads inlined `NEXT_PUBLIC_SUPABASE_*`).
-- Some admin diagnostics still `require` CJS under `api/_lib/` (kept as libraries, not public Vercel functions).
+- Admin diagnostics / k6 smoke: TypeScript modules `lib/systemDiagnostics.ts` and `lib/k6Smoke.ts` (no CJS bridge).
 
 ### Direct SQL drivers (PgBouncer / Supavisor)
 
 - Prefer the **Transaction** pooler (port **`6543`**) for any direct `postgres` / `pg` / Prisma / Drizzle use from serverless.
 - Set `DATABASE_URL` to the pooler URI from Supabase Dashboard → **Connect** → **Transaction pooler**.
-- Helper: `lib/supabaseDb.ts` → `getPooledDatabaseUrl()` (also available from `api/_lib` helpers where still used).
+- Helper: `lib/supabaseDb.ts` → `getPooledDatabaseUrl()`.
 - Never use direct session port **`5432`** from Vercel functions — it exhausts connections under concurrency.
 - Transaction mode: disable prepared statements in the driver when using `:6543`.
 

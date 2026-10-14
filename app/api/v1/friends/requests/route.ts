@@ -24,7 +24,7 @@ function mapFriendRequestRow(row: any, profilesById: Map<string, any>) {
   };
 }
 
-/** GET /api/v1/friends/requests — native Next (no Express boot). */
+/** GET /api/v1/friends/requests — Next.js Route Handler. */
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAuth(req);

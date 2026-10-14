@@ -1,5 +1,5 @@
 /**
- * Native admin handlers (generated from server/routes/officeRbac.routes.ts — no Express).
+ * Native admin handlers for Next.js Route Handlers (from server/routes/officeRbac.routes.ts).
  */
 import type { ServerRuntime } from '../../server/runtimeTypes';
 import type { AuthOk } from '../nextAuth';

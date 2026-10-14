@@ -542,7 +542,7 @@ export const QuickMatchRoulette: React.FC<QuickMatchRouletteProps> = ({
     }, 150);
   };
 
-  // Caller Match / Like Button Handler — persists mutual Quick Match via Express
+  // Caller Match / Like Button Handler — persists mutual Quick Match via /api Route Handlers
   const handleMatch = async () => {
     if (isLiked || !currentHost) return;
     setIsLiked(true);

@@ -288,7 +288,7 @@ function createNativeRuntime(): ServerRuntime {
   return runtime;
 }
 
-/** In-memory ServerRuntime for native Next handlers — no Express boot. */
+/** In-memory ServerRuntime for Next.js Route Handlers. */
 export async function getServerRuntime(): Promise<ServerRuntime> {
   if (cachedRuntime) return cachedRuntime;
   if (!initPromise) {

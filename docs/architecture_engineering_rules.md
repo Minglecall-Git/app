@@ -30,7 +30,7 @@
 | **UI** | React in `src/` via `app/client-app.tsx` (`ssr: false` shell) | Client SPA shell; deep links re-export the same shell |
 | **API** | Native `app/api/**/route.ts` (+ domain catch-alls) | Auth, business mutations, LiveKit tokens, R2 presigns, finance jobs |
 | **Database & Auth** | Supabase PostgreSQL + Auth | Authoritative data, RLS, chat history, profiles, wallets / call_logs |
-| **Realtime** | Supabase Realtime | Targeted chat, call signals, light live events (not Express `/ws` on Vercel) |
+| **Realtime** | Supabase Realtime | Targeted chat, call signals, light live events (no custom WebSocket server) |
 | **Cache & Presence** | Upstash Redis (REST) | `presence:{userId}` leases, rate limits, hot ephemeral keys |
 | **Media Transport** | LiveKit Cloud | WebRTC A/V; tokens minted **server-side only** |
 | **Media Storage** | Cloudflare R2 (presigned PUT) | Avatars, gallery, verification; metadata in Supabase |

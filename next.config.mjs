@@ -38,26 +38,11 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.cloudflarestorage.com' },
     ],
   },
-  webpack: (config, { dev, isServer }) => {
+  webpack: (config, { dev }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': __dirname,
     };
-    if (isServer) {
-      const prev = config.externals;
-      config.externals = [
-        ...(Array.isArray(prev) ? prev : prev ? [prev] : []),
-        ({ context, request }, callback) => {
-          if (request && String(request).replace(/\\/g, '/').includes('api/_lib/cjs/')) {
-            const abs = path.isAbsolute(request)
-              ? request
-              : path.resolve(context || __dirname, request);
-            return callback(null, 'commonjs ' + abs);
-          }
-          callback();
-        },
-      ];
-    }
     // Next 15's minify plugin throws "WebpackError is not a constructor" on this
     // tree (Windows + the large server bundle). The app still builds and runs.
     if (!dev) config.optimization.minimize = false;
@@ -66,7 +51,6 @@ const nextConfig = {
   serverExternalPackages: [
     '@upstash/redis',
     'livekit-server-sdk',
-    'ws',
     'nodemailer',
     'bcryptjs',
     '@aws-sdk/client-s3',

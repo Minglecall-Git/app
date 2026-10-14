@@ -1163,7 +1163,7 @@ export const AdminDatabaseStorageConfig: React.FC<AdminDatabaseStorageConfigProp
 
             <p className="text-xs text-slate-400">
               Runs a live secret-key probe against Supabase (<code className="text-slate-300">profiles</code> count)
-              and reports round-trip latency. Pool size figures from local Express are not applicable on Vercel serverless.
+              and reports round-trip latency. Pool size figures from a legacy monolithic server are not applicable on Vercel serverless.
             </p>
 
             <button

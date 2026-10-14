@@ -48,7 +48,7 @@ export function apiUrl(pathOrUrl: string): string {
   return `${base}${path}`;
 }
 
-/** WebSocket signaling URL for Express `/ws`. */
+/** Optional legacy WebSocket URL (split-deploy only; production uses Supabase Realtime). */
 export function getWsUrl(): string {
   const explicit = readEnv('NEXT_PUBLIC_WS_URL') || readEnv('VITE_WS_URL');
   if (explicit) return explicit;
@@ -74,5 +74,5 @@ export function getDeployModeLabel(): string {
   if (typeof process !== 'undefined' && process.env.NODE_ENV === 'production') {
     return 'vercel-only (same-origin /api + Realtime)';
   }
-  return 'same-origin (local Express + /ws)';
+  return 'same-origin (/api Route Handlers + Realtime)';
 }

@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/presence/heartbeat — Redis-only native Next route.
- * Skips Express in-memory broadcast (Realtime/Redis are source of truth).
+ * No in-process broadcast (Realtime/Redis are source of truth).
  */
 export async function POST(req: NextRequest) {
   try {

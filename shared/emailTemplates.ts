@@ -1,5 +1,5 @@
 /**
- * Admin-editable email templates shared by Express + Vercel email senders.
+ * Admin-editable email templates shared by Next.js /api email senders.
  * Placeholders: {{name}}, {{otp}}, {{email}}, {{link}}
  */
 

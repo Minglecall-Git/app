@@ -1,6 +1,6 @@
 import type { UserProfile } from '../src/types';
 
-/** Normalize db / API profiles into standardized camelCase UserProfile (shared native + Express runtime). */
+/** Normalize db / API profiles into standardized camelCase UserProfile (Route Handlers + native runtime). */
 export function normalizeUserProfile(p: any): UserProfile {
   return {
     id: p.id,

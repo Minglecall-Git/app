@@ -1,5 +1,5 @@
 /**
- * Dedicated Next.js R2 probe — no AWS SDK / Express import (avoids HTML 500 on boot).
+ * Dedicated Next.js R2 probe — minimal imports (avoids heavy boot failures on this route).
  * Uses SigV4 ListObjectsV2 against https://<ACCOUNT_ID>.r2.cloudflarestorage.com
  */
 import { createHash, createHmac } from 'crypto';

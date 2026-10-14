@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 
 const DEFAULT_MAX_BYTES = 1_000_000; // 1MB default
-const LARGE_MAX_BYTES = 25 * 1024 * 1024; // Express parity for large uploads/bodies
+const LARGE_MAX_BYTES = 25 * 1024 * 1024; // Legacy 25mb body limit for large uploads
 
 export type ParseJsonResult<T = unknown> = {
   ok: boolean;
@@ -12,7 +12,7 @@ export type ParseJsonResult<T = unknown> = {
 
 /**
  * Parse JSON body from a NextRequest with an optional size cap.
- * Use `large: true` only for endpoints that previously allowed Express 25mb bodies.
+ * Use `large: true` only for endpoints that allow 25mb request bodies.
  */
 export async function parseJsonBody<T = unknown>(
   req: NextRequest,

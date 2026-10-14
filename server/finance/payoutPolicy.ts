@@ -55,7 +55,7 @@ export async function assertManualPayoutAllowed(): Promise<void> {
   }
 }
 
-/** Structured result for Express handlers (no throw). */
+/** Structured result for Route Handlers (no throw). */
 export async function checkManualPayoutAllowed(): Promise<PayoutPolicyDecision> {
   const config = await loadFinanceSystemConfig();
   return evaluateManualPayoutPolicy(config.settlementEnabled);

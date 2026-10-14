@@ -462,7 +462,7 @@ export function AdminEmailPanel() {
             ) : null}
             <div className="flex items-center justify-between gap-2">
               <span className="text-slate-400">Runtime</span>
-              <span className="text-slate-300">{env.vercel ? 'Vercel' : 'Local / Express'}</span>
+              <span className="text-slate-300">{env.vercel ? 'Vercel' : 'Local Next.js server'}</span>
             </div>
           </div>
           <a

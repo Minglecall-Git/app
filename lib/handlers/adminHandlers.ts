@@ -1,5 +1,5 @@
 /**
- * Native admin handlers (generated from server/routes/admin.routes.ts — no Express).
+ * Native admin handlers for Next.js Route Handlers (from server/routes/admin.routes.ts).
  */
 import type { ServerRuntime } from '../../server/runtimeTypes';
 import type { AuthOk } from '../nextAuth';

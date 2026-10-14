@@ -25,7 +25,7 @@ const DEFAULT_R2_PURGE_PREFIXES = [
   'uploads/media/',
 ];
 
-/** Fallback when profiles.gallery_videos column is not migrated yet (Vercel + local Express). */
+/** Fallback when profiles.gallery_videos column is not migrated yet (serverless + local dev). */
 export const GALLERY_VIDEOS_SENTINEL_PREFIX = '__mc_gv1__:';
 
 export function encodeGalleryVideosSentinel(videos: unknown): string {

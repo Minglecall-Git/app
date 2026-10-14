@@ -1204,7 +1204,7 @@ export async function upsertMatchToSupabase(
   status: 'pending' | 'matched' | 'rejected' | 'unmatched' = 'pending',
   initiatedBy?: string
 ): Promise<boolean> {
-  // Prefer Express /api/v1/matches/* for mutations. This client helper remains for
+  // Prefer /api/v1/matches/* Route Handlers for mutations. This client helper remains for
   // legacy/admin paths only — default is pending (never auto-matched).
   if (!isSupabaseConfigured()) return false;
 
@@ -2218,7 +2218,7 @@ export async function pushAllTaxonomiesAndSettingsToSupabase(
 
 // ============================================================================
 // CONTENT MODERATION REPORTS API
-// Deprecated: use POST /api/v1/reports via AppContext.reportUser (Express + service role).
+// Deprecated: use POST /api/v1/reports via AppContext.reportUser (Route Handler + service role).
 // Client-side inserts are not used — reporter_id must come from the JWT on the server.
 // ============================================================================
 
@@ -2469,7 +2469,7 @@ export async function fetchHomeBannersFromSupabase(): Promise<any[] | null> {
   }
 }
 
-/** Admin CMS writes must go through Express requireAdmin — not client upsert. */
+/** Admin CMS writes must go through /api admin Route Handlers — not client upsert. */
 export async function upsertHomeBannerToSupabase(banner: any): Promise<boolean> {
   try {
     const res = await authFetch('/api/admin/cms/banners', {
@@ -2744,7 +2744,7 @@ export async function insertCallLogToSupabase(log: any): Promise<boolean> {
 
 // ============================================================================
 // FRIEND REQUESTS API
-// Mutations MUST go through Express (/api/v1/friends/*).
+// Mutations MUST go through /api Route Handlers (/api/v1/friends/*).
 // ============================================================================
 
 export async function fetchFriendRequestsFromSupabase(): Promise<any[] | null> {
@@ -2997,7 +2997,7 @@ export async function deleteCoinPackageFromSupabase(pkgId: string): Promise<bool
 
 // ============================================================================
 // FAVORITES & BLOCKED USERS API
-// Mutations MUST go through Express (/api/v1/favorites/*, /api/v1/blocks/*).
+// Mutations MUST go through /api Route Handlers (/api/v1/favorites/*, /api/v1/blocks/*).
 // ============================================================================
 
 export async function fetchFavoritesFromSupabase(userId: string): Promise<string[] | null> {

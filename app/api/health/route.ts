@@ -5,7 +5,7 @@ import { enforceRateLimit } from '../../../lib/nextRateLimit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** Lightweight health — never boots Express. Uses Phase 0 rate-limit helper. */
+/** Lightweight health — Next.js Route Handler. Uses Phase 0 rate-limit helper. */
 export async function GET(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'public');
   if (limited) return limited;

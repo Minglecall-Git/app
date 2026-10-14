@@ -810,7 +810,7 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
                     </div>
                     <p className="text-[11px] text-slate-400">
                       On Vercel production the API records this request but does <span className="text-amber-300 font-semibold">not</span> delete
-                      R2 objects. Clear the bucket in Cloudflare if a full media wipe is required. Local Express may purge when configured.
+                      R2 objects. Clear the bucket in Cloudflare if a full media wipe is required. Local dev may purge R2 when configured.
                     </p>
                   </div>
                 </label>

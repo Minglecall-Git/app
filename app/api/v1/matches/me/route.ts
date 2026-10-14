@@ -19,7 +19,7 @@ function mapMatchRow(row: any, currentUserId: string) {
   };
 }
 
-/** GET /api/v1/matches/me — native Next (no Express boot). */
+/** GET /api/v1/matches/me — Next.js Route Handler. */
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAuth(req);

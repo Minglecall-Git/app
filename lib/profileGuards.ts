@@ -1,4 +1,4 @@
-/** Profile field / ownership guards for native Next handlers (no Express). */
+/** Profile field / ownership guards for Next.js Route Handlers. */
 
 export type ResolvedProfile = {
   id: string;

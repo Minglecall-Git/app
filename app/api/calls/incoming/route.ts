@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/calls/incoming — DB ringing calls for callee (native Next).
- * In-memory Express activeCalls are not available here; call_logs is source of truth.
+ * No in-memory activeCalls map; call_logs is source of truth.
  */
 export async function GET(req: NextRequest) {
   try {

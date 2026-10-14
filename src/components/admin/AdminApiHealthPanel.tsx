@@ -280,7 +280,7 @@ export const AdminApiHealthPanel: React.FC = () => {
     if (useRealtime || !isSplitDeploy()) {
       nextClient.push(await probeRealtime());
     } else {
-      // Legacy split-deploy Express WS probe
+      // Legacy split-deploy WebSocket probe (optional external API host)
       const t0 = Date.now();
       nextClient.push(
         await new Promise<CheckRow>((resolve) => {
@@ -393,7 +393,7 @@ export const AdminApiHealthPanel: React.FC = () => {
           </div>
           <p className="text-sm text-slate-400 max-w-2xl">
             Probes same-origin Vercel <code className="text-cyan-400">/api/*</code> and Supabase Realtime signaling
-            (no Express <code className="text-slate-500">/ws</code> on production).
+            (production uses Realtime; legacy <code className="text-slate-500">/ws</code> is split-deploy only).
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -430,7 +430,7 @@ export const AdminApiHealthPanel: React.FC = () => {
             <Wifi className="w-3.5 h-3.5 text-amber-400" /> Signaling
           </div>
           <p className="text-white font-semibold text-sm">
-            {useRealtime ? 'Supabase Realtime' : 'WebSocket (local/Express)'}
+            {useRealtime ? 'Supabase Realtime' : 'WebSocket (split-deploy legacy)'}
           </p>
           {!useRealtime && (
             <p className="text-[11px] text-slate-500 mt-1 font-mono break-all">{wsUrl}</p>

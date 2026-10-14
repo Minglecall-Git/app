@@ -1091,7 +1091,7 @@ export async function updateUserPassword(params: {
 
 
 /**
- * Step 2: Complete Profile Onboarding Wizard & save to Supabase (via authenticated Express path)
+ * Step 2: Complete Profile Onboarding Wizard & save to Supabase (via authenticated /api Route Handler)
  */
 export async function completeUserProfileOnboarding(
   currentUser: UserProfile,

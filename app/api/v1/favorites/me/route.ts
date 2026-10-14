@@ -4,7 +4,7 @@ import { createServiceClient, jsonErr, jsonOk, requireAuth } from '../../../../.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** GET /api/v1/favorites/me — native Next (no Express boot). */
+/** GET /api/v1/favorites/me — Next.js Route Handler. */
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAuth(req);

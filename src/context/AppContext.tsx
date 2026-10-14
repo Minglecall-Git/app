@@ -340,9 +340,9 @@ interface AppContextType {
   blockedByUserIds: string[];
   creatorGoals: Record<string, { title: string; currentCoins: number; targetCoins: number }>;
   toggleFavorite: (userId: string) => Promise<boolean>;
-  /** Persist swipe like via Express (pending unless reciprocal → matched). */
+  /** Persist swipe like via /api Route Handlers (pending unless reciprocal → matched). */
   likeUser: (targetUserId: string, options?: { superLike?: boolean }) => Promise<boolean>;
-  /** Persist swipe pass via Express (status=rejected). */
+  /** Persist swipe pass via /api Route Handlers (status=rejected). */
   passUser: (targetUserId: string) => Promise<boolean>;
   /** Match rows for swipe exclusion / mutual status (from /api/v1/matches/me). */
   userMatchRecords: Array<{
@@ -367,7 +367,7 @@ interface AppContextType {
   blockReportModal: { userId: string; action: 'report' | 'block' } | null;
   contributeToGoal: (creatorId: string, coins: number) => Promise<boolean>;
 
-  // Creator Reviews & Ratings (DB-backed via Express — not localStorage)
+  // Creator Reviews & Ratings (DB-backed via /api — not localStorage)
   creatorReviews: CreatorReview[];
   refreshCreatorReviews: (creatorId?: string) => Promise<void>;
   submitCreatorReview: (
@@ -592,7 +592,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     document.body.classList.remove('light');
   }, []);
 
-  // Social & Goals State — favorites/blocks hydrate from Express/Supabase (not localStorage-as-DB)
+  // Social & Goals State — favorites/blocks hydrate from /api and Supabase (not localStorage-as-DB)
   const [favorites, setFavorites] = useState<string[]>([]);
 
   const [friends, setFriends] = useState<string[]>(() => []);
@@ -826,7 +826,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           return !callLogsSeenAt || (Number.isFinite(ts) && ts > callLogsSeenAt);
         }).length;
 
-  // Real-time signaling: Supabase Realtime on Vercel; WebSocket /ws for local Express
+  // Real-time signaling: Supabase Realtime (legacy split-deploy may use optional /ws)
   const wsRef = useRef<WebSocket | null>(null);
   const realtimeRef = useRef<RealtimeSignaling | null>(null);
   const wsAuthenticatedRef = useRef(false);
@@ -3650,7 +3650,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // Status/last_seen persistence is server-owned via presence heartbeat.
         // Do not push client online_status here — it can overwrite authoritative busy.
 
-        // 2. Sync friend requests from Express (JWT-derived actor; not client Supabase)
+        // 2. Sync friend requests from /api (JWT-derived actor; not client Supabase)
         const frRes = await authFetch('/api/v1/friends/requests');
         if (frRes.ok && !isCancelled) {
           const frJson = await frRes.json().catch(() => null);
@@ -4141,7 +4141,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               applyIncomingRingRef.current({ callId, callerId, receiverId });
               return;
             }
-            // call:ringing — caller echo (Express) or party update
+            // call:ringing — caller echo (API) or party update
             if (!selfCheck(callerId) && !selfCheck(receiverId)) return;
             const cur = activeCallRef.current;
             if (cur && cur.status === 'active') return;
@@ -4455,7 +4455,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               });
             }
           } else if (data.type === 'friend_request:incoming' || data.type === 'friend_request:send') {
-            // Express remaps send→incoming; Realtime may deliver either
+            // API remaps send→incoming; Realtime may deliver either
             const req = data.request;
             if (req?.id) {
               setFriendRequests((prev) => {
@@ -5774,7 +5774,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return true;
     }
 
-    // Local Express /ws mode only: wait briefly for socket, then fail clearly
+    // Legacy split-deploy /ws only: wait briefly for socket, then fail clearly
     pendingCallReceiverRef.current = receiverId;
     wsConnectRef.current();
     showToast(
@@ -6794,7 +6794,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Send Chat Message — Express → Supabase → Realtime (optimistic temp id reconciled)
+  // Send Chat Message — /api Route Handler → Supabase → Realtime (optimistic temp id reconciled)
   const sendMessage = async (
     receiverId: string,
     text: string,
@@ -6887,7 +6887,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       const json = await res.json().catch(() => null);
-      // Express: data.message; legacy CJS: top-level message
+      // API: data.message; legacy responses: top-level message
       const serverMsg = (json?.data?.message || json?.message) as ChatMessage | undefined;
       if (!res.ok || !json?.success || !serverMsg?.id) {
         const msg =
@@ -7024,7 +7024,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Submit Creator Review (Express → creator_reviews)
+  // Submit Creator Review (/api → creator_reviews)
   const submitCreatorReview = async (
     reviewData: Omit<CreatorReview, 'id' | 'createdAt'> & { ratingRequestMessageId?: string }
   ): Promise<boolean> => {
@@ -7148,7 +7148,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Send Rating Request (durable call_rating message via Express)
+  // Send Rating Request (durable call_rating message via /api Route Handlers)
   const sendRatingRequest = async (
     creatorId: string,
     callerId: string,
@@ -7212,7 +7212,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Mark chat messages from a user as read (DB is_read via Express)
+  // Mark chat messages from a user as read (DB is_read via /api Route Handlers)
   const markChatAsRead = (otherUserId: string) => {
     if (!otherUserId || !currentUser?.id) return;
 
@@ -9535,7 +9535,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Quick Match Successful Matches History — hydrated from Supabase via Express (not localStorage-as-DB)
+  // Quick Match Successful Matches History — hydrated from Supabase via /api (not localStorage-as-DB)
   const [quickMatches, setQuickMatches] = useState<QuickMatchItem[]>([]);
 
   // Hydrate favorites, match records, blocks, friends when session user is ready

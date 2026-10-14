@@ -2,8 +2,7 @@
  * Upstash Redis — server-only. Never import from client components.
  * Keys: presence:{userId}, profile:{userId}, rate:{userId}:{endpoint}, call:{callId}, signup:{email}
  *
- * Credential order matches api/_lib/cjs/redisEnv.js:
- * UPSTASH_REDIS_REST_* , then Vercel KV_REST_API_* , then https REDIS_URL / KV_URL.
+ * Credential order: UPSTASH_REDIS_REST_* , then Vercel KV_REST_API_* , then https REDIS_URL / KV_URL.
  */
 import { Redis } from '@upstash/redis';
 
@@ -23,7 +22,7 @@ function httpUrl(value: string | undefined): string {
   return /^https?:\/\//i.test(url) ? url : '';
 }
 
-/** Same fallback order as api/_lib/cjs/redisEnv.js. */
+/** Same env fallback order as documented above. */
 export function getRedisRestCredentials(): { url: string; token: string } {
   const url =
     httpUrl(process.env.UPSTASH_REDIS_REST_URL) ||
