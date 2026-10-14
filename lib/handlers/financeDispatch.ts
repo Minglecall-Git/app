@@ -448,6 +448,18 @@ export async function dispatchFinance(
         onMetricsReset: () => {},
       });
 
+      // Best-effort: flush Redis creator online-seconds into Postgres (same daily cron window)
+      try {
+        const { isRedisConfigured } = await import('../redis');
+        const db = requireDb();
+        if (isRedisConfigured() && db) {
+          const { flushDirtyCreatorOnlineSeconds } = await import('../creatorOnlineAccrual');
+          await flushDirtyCreatorOnlineSeconds(db, 500);
+        }
+      } catch (flushErr: any) {
+        console.warn('[finance/jobs/close-due-periods] creator online flush:', flushErr?.message || flushErr);
+      }
+
       if (result.success) {
         await stampFinanceCronRun();
       }

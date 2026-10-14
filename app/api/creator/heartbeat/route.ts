@@ -1,13 +1,22 @@
 import { NextRequest } from 'next/server';
-import { mapCreatorMetricsRow } from '../../../../lib/handlers/creatorMetricsMap';
+import { loadCreatorMetricsWithPending } from '../../../../lib/creatorOnlineAccrual';
 import { createServiceClient, jsonErr, jsonOk, requireAuth } from '../../../../lib/nextAuth';
 import { parseJsonBody } from '../../../../lib/nextRequest';
-import { isRedisConfigured, RedisUnavailableError, setPresence } from '../../../../lib/redis';
+import {
+  accrueCreatorOnlineTick,
+  CREATOR_ONLINE_TICK_SEC,
+  isRedisConfigured,
+  RedisUnavailableError,
+  setPresence,
+} from '../../../../lib/redis';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** POST /api/creator/heartbeat — Redis presence + creator_metrics (native Next). */
+/**
+ * POST /api/creator/heartbeat — Redis presence + ephemeral online-seconds accrual.
+ * Does NOT write creator_metrics on every tick (flush on logout / cron).
+ */
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireAuth(req);
@@ -26,6 +35,7 @@ export async function POST(req: NextRequest) {
     const creatorId = auth.profileId;
     try {
       await setPresence(creatorId, 'online');
+      await accrueCreatorOnlineTick(creatorId, CREATOR_ONLINE_TICK_SEC);
     } catch (err: any) {
       if (err instanceof RedisUnavailableError) {
         return jsonErr(503, err.message, 'REDIS_UNAVAILABLE');
@@ -34,39 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = createServiceClient();
-    if (client) {
-      try {
-        const { data: cm } = await client
-          .from('creator_metrics')
-          .select('creator_id, active_online_seconds')
-          .eq('creator_id', creatorId)
-          .maybeSingle();
-        if (cm) {
-          const secs = Number(cm.active_online_seconds || 0) + 45;
-          await client
-            .from('creator_metrics')
-            .update({
-              active_online_seconds: secs,
-              active_online_hours: Number((secs / 3600).toFixed(2)),
-              last_active_date: new Date().toISOString().slice(0, 10),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('creator_id', creatorId);
-        }
-      } catch {
-        /* optional */
-      }
-    }
-
-    let metrics = null;
-    if (client) {
-      const { data: rows } = await client
-        .from('creator_metrics')
-        .select('*')
-        .eq('creator_id', creatorId)
-        .maybeSingle();
-      metrics = rows ? mapCreatorMetricsRow(rows as Record<string, unknown>) : null;
-    }
+    const metrics = client ? await loadCreatorMetricsWithPending(client, creatorId) : null;
 
     return jsonOk({ success: true, metrics, redis: true, runtime: 'next-native' });
   } catch (err: any) {

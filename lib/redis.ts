@@ -1,6 +1,7 @@
 /**
  * Upstash Redis — server-only. Never import from client components.
- * Keys: presence:{userId}, profile:{userId}, rate:{userId}:{endpoint}, call:{callId}, signup:{email}
+ * Keys: presence:{userId}, profile:{userId}, rate:{userId}:{endpoint}, call:{callId},
+ * signup:{email}, creator:online:{userId}, creator:online:last:{userId}, creator:online:dirty
  *
  * Credential order: UPSTASH_REDIS_REST_* , then Vercel KV_REST_API_* , then https REDIS_URL / KV_URL.
  */
@@ -50,7 +51,8 @@ export function getRedis(): Redis | null {
   return redis;
 }
 
-export const PRESENCE_TTL_SEC = 75;
+/** Presence lease TTL (30–45s window). Refreshed by ~15–20s client heartbeats. */
+export const PRESENCE_TTL_SEC = 40;
 export const PROFILE_CACHE_TTL_SEC = 60;
 export const RATE_LIMIT_WINDOW_SEC = 60;
 
@@ -237,4 +239,98 @@ export async function checkRateLimit(
   const n = await client.incr(key);
   if (n === 1) await client.expire(key, windowSec);
   return n <= max;
+}
+
+/** Ephemeral creator online-time accrual (flushed to Postgres on lifecycle / cron). */
+export const CREATOR_ONLINE_TICK_SEC = 45;
+/** Ignore duplicate ticks closer than this (ms). */
+export const CREATOR_ONLINE_MIN_GAP_MS = 30_000;
+export const CREATOR_ONLINE_PENDING_TTL_SEC = 7 * 24 * 60 * 60;
+export const CREATOR_ONLINE_DIRTY_SET = 'creator:online:dirty';
+
+export function creatorOnlinePendingKey(userId: string): string {
+  return `creator:online:${userId}`;
+}
+
+export function creatorOnlineLastTickKey(userId: string): string {
+  return `creator:online:last:${userId}`;
+}
+
+/**
+ * Accrue one heartbeat tick of online seconds in Redis only.
+ * Returns pending total after incr (0 if skipped by min-gap / Redis down).
+ */
+export async function accrueCreatorOnlineTick(
+  userId: string,
+  tickSec: number = CREATOR_ONLINE_TICK_SEC
+): Promise<number> {
+  const client = getRedis();
+  if (!client || !userId || tickSec <= 0) return 0;
+  const lastKey = creatorOnlineLastTickKey(userId);
+  const pendingKey = creatorOnlinePendingKey(userId);
+  const now = Date.now();
+  try {
+    const lastRaw = await client.get<string | number>(lastKey);
+    const lastMs = lastRaw != null ? Number(lastRaw) : 0;
+    if (Number.isFinite(lastMs) && lastMs > 0 && now - lastMs < CREATOR_ONLINE_MIN_GAP_MS) {
+      const pending = await client.get<string | number>(pendingKey);
+      return Math.max(0, Math.floor(Number(pending) || 0));
+    }
+    const next = await client.incrby(pendingKey, tickSec);
+    await client.expire(pendingKey, CREATOR_ONLINE_PENDING_TTL_SEC);
+    await client.set(lastKey, String(now), { ex: CREATOR_ONLINE_PENDING_TTL_SEC });
+    await client.sadd(CREATOR_ONLINE_DIRTY_SET, userId);
+    return Math.max(0, Math.floor(Number(next) || 0));
+  } catch (err: any) {
+    throw new RedisUnavailableError(err?.message || 'Redis creator online accrue failed');
+  }
+}
+
+export async function getCreatorOnlinePending(userId: string): Promise<number> {
+  const client = getRedis();
+  if (!client || !userId) return 0;
+  try {
+    const pending = await client.get<string | number>(creatorOnlinePendingKey(userId));
+    return Math.max(0, Math.floor(Number(pending) || 0));
+  } catch {
+    return 0;
+  }
+}
+
+/** Atomically take pending seconds for flush. Re-credit with requeueCreatorOnlinePending on failure. */
+export async function takeCreatorOnlinePending(userId: string): Promise<number> {
+  const client = getRedis();
+  if (!client || !userId) return 0;
+  try {
+    const raw = await client.getdel<string | number>(creatorOnlinePendingKey(userId));
+    const secs = Math.max(0, Math.floor(Number(raw) || 0));
+    if (secs > 0) await client.srem(CREATOR_ONLINE_DIRTY_SET, userId);
+    return secs;
+  } catch (err: any) {
+    throw new RedisUnavailableError(err?.message || 'Redis creator online take failed');
+  }
+}
+
+export async function requeueCreatorOnlinePending(userId: string, seconds: number): Promise<void> {
+  const client = getRedis();
+  if (!client || !userId || seconds <= 0) return;
+  try {
+    await client.incrby(creatorOnlinePendingKey(userId), seconds);
+    await client.expire(creatorOnlinePendingKey(userId), CREATOR_ONLINE_PENDING_TTL_SEC);
+    await client.sadd(CREATOR_ONLINE_DIRTY_SET, userId);
+  } catch (err: any) {
+    throw new RedisUnavailableError(err?.message || 'Redis creator online requeue failed');
+  }
+}
+
+export async function listDirtyCreatorOnlineIds(limit = 200): Promise<string[]> {
+  const client = getRedis();
+  if (!client) return [];
+  try {
+    const members = await client.smembers(CREATOR_ONLINE_DIRTY_SET);
+    if (!Array.isArray(members)) return [];
+    return members.map(String).filter(Boolean).slice(0, Math.max(1, Math.min(limit, 500)));
+  } catch {
+    return [];
+  }
 }

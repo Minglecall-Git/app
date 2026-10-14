@@ -1,5 +1,5 @@
 /**
- * k6: 10k concurrent users, jittered ~30s presence heartbeat.
+ * k6: 10k concurrent users, jittered ~15–20s presence heartbeat.
  * Expect Redis-backed responses (redis:true) and no DB saturation.
  *
  *   k6 run -e BASE_URL=https://staging.example.com -e TOKEN=eyJ... k6/presence_heartbeat.js
@@ -51,6 +51,6 @@ export default function () {
     },
   });
   failRate.add(!ok);
-  // Jittered ~30s (±5s)
-  sleep(25 + Math.random() * 10);
+  // Jittered ~15–20s
+  sleep(15 + Math.random() * 5);
 }

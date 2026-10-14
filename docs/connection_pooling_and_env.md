@@ -83,6 +83,6 @@ Code still accepts temporary fallbacks (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `VITE_*
 
 ## Presence durability rule
 
-- Routine heartbeats update **Redis only** (`presence:{userId}`, TTL 60–90s).
+- Routine heartbeats update **Redis only** (`presence:{userId}`, TTL 30–45s; clients tick ~15–20s).
 - Write `profiles.online_status` / `profiles.last_seen_at` only on login, logout, or significant status transitions — never on every heartbeat tick.
 - Without Redis REST credentials, presence must not fall back to Postgres under load (configure Redis before 10k tests).

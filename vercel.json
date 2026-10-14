@@ -3,6 +3,10 @@
     {
       "path": "/api/v1/finance/jobs/close-due-periods",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/creator/jobs/flush-online-seconds",
+      "schedule": "15 0 * * *"
     }
   ]
 }

@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server';
+import {
+  loadCreatorMetricsWithPending,
+  withPendingOnlineSeconds,
+} from '../../../../lib/creatorOnlineAccrual';
 import { mapCreatorMetricsRow } from '../../../../lib/handlers/creatorMetricsMap';
 import { createServiceClient, jsonErr, jsonOk, requireAuth, TEAM_LEADER_ROLES } from '../../../../lib/nextAuth';
+import { getCreatorOnlinePending } from '../../../../lib/redis';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,15 +29,23 @@ export async function GET(req: NextRequest) {
         TEAM_LEADER_ROLES.has(auth.role);
       if (!allowed) return jsonErr(403, 'Forbidden', 'FORBIDDEN');
 
+      // Overlay Redis pending online seconds for live UI (no Postgres write).
+      if (creatorId === selfId) {
+        const metric = await loadCreatorMetricsWithPending(client, creatorId);
+        return jsonOk({ success: true, metric, runtime: 'next-native' });
+      }
+
       const { data, error } = await client
         .from('creator_metrics')
         .select('*')
         .eq('creator_id', creatorId)
         .maybeSingle();
       if (error) return jsonErr(500, error.message, 'METRICS_FETCH_FAILED');
+      const mapped = data ? mapCreatorMetricsRow(data as Record<string, unknown>) : null;
+      const pending = await getCreatorOnlinePending(creatorId);
       return jsonOk({
         success: true,
-        metric: data ? mapCreatorMetricsRow(data as Record<string, unknown>) : null,
+        metric: withPendingOnlineSeconds(mapped, pending),
         runtime: 'next-native',
       });
     }

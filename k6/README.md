@@ -4,7 +4,7 @@ Acceptance targets from `docs/architecture_engineering_rules.md`:
 
 | Scenario | Script | Target |
 | --- | --- | --- |
-| Presence | `presence_heartbeat.js` | 10k VUs, jittered 30s, near-zero Postgres presence writes |
+| Presence | `presence_heartbeat.js` | 10k VUs, jittered 15–20s, near-zero Postgres presence writes |
 | Auth/profile burst | `auth_profile_burst.js` | 500–1000 RPS, p95 ≤ 300ms |
 | Chat | `chat_send.js` | API p95 ≤ 500ms |
 | Reconnect storm | `reconnect_storm.js` | 5k reconnect / ~30s |

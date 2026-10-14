@@ -4584,12 +4584,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }, 15000);
 
-    // 2. HTTP presence — jittered ~30s (Redis lease); never full-directory Postgres writes
-    const presenceIntervalMs = 30000 + Math.floor(Math.random() * 10000) - 5000;
+    // 2. HTTP presence — jittered ~15–20s (Redis lease ~40s TTL); never full-directory Postgres writes
+    const presenceIntervalMs = 17500 + Math.floor(Math.random() * 5000) - 2500;
     presenceSyncTimer = setInterval(() => {
       if (isResettingRef.current) return;
       syncPresenceDirect();
-    }, Math.max(25000, presenceIntervalMs));
+    }, Math.max(15000, Math.min(20000, presenceIntervalMs)));
 
     // 3. User directory refresh — slowed; presence comes from Redis peer ids, not full map
     userDirectoryTimer = setInterval(() => {
@@ -5084,6 +5084,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await Promise.all([
         persistOffline('/api/supabase/update-status'),
         persistOffline('/api/presence'),
+        // Flush Redis creator online accrual into Postgres (lifecycle transition only)
+        persistOffline('/api/creator/flush-online'),
       ]);
 
       // Close socket after offline was requested so server close handler also writes offline
@@ -10362,6 +10364,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     const timer = setInterval(tick, 45000);
     return () => clearInterval(timer);
+  }, [isLoggedIn, currentUser?.id, currentUser?.gender]);
+
+  // Lifecycle flush: push Redis pending online seconds to Postgres when tab hides / unloads
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser || currentUser.gender !== 'female') return;
+    const flush = () => {
+      void (async () => {
+        try {
+          const token = accessTokenRef.current || (await getAccessToken());
+          if (!token) return;
+          await fetch(apiUrl('/api/creator/flush-online'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({}),
+            keepalive: true,
+          });
+        } catch {
+          /* best effort */
+        }
+      })();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
   }, [isLoggedIn, currentUser?.id, currentUser?.gender]);
 
   const myCreatorMetrics = useMemo<CreatorMetrics | null>(() => {

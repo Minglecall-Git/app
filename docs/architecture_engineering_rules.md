@@ -6,7 +6,10 @@
 
 **Primary Stack:** Next.js (App Router) on Vercel + Supabase (PostgreSQL + Auth + Realtime) + Upstash Redis + LiveKit Cloud + Cloudflare R2
 
+* **Strict Next.js & Serverless Mandate:** The application architecture is 100% native Next.js App Router (`app/api/**/route.ts`). Express, `server.ts`, `expressAdapter`, legacy CJS backend wrappers, and custom long-lived WebSockets (`ws`) are strictly prohibited[cite: 2]. All backend logic must utilize serverless-state API route handlers paired with Supabase Realtime and Upstash Redis[cite: 2].
+
 **Runtime (local + Vercel):** One Next.js app. `npm run dev` → `next dev`. `npm run build` / Vercel → `next build`. Do not use a separate Vite SPA or root `api/*.js` deploy.
+
 
 ## 1. Architectural Principles & Core Mandates
 
@@ -85,17 +88,18 @@ Required names: see `docs/connection_pooling_and_env.md` and `.env.example`.
 
 | Data Type | Redis Key Pattern | TTL / Expiration | Purpose |
 | ----- | ----- | ----- | ----- |
-| **User Presence Lease** | `presence:{userId}` | 60–90 seconds | Active lease; refreshed via heartbeats |
+| **User Presence Lease** | `presence:{userId}` | 30–45 seconds | Active lease; refreshed via heartbeats |
 | **Cached Profile** | `profile:{userId}` | 30–120 seconds | Optional hot public attributes |
 | **Rate Limit** | `rate:{userId}:{endpoint}` | Short window (e.g. 10–60s) | Abuse protection |
 | **Call Room State** | `call:{callId}` | Dynamic (call max) | Ephemeral call coordination when used |
+| **Creator online accrual** | `creator:online:{userId}` (+ `creator:online:dirty`) | ~7 days | Pending active-online seconds; flush to Postgres on logout/cron — never on each heartbeat tick |
 
 Use **HTTPS REST** credentials: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`, or `KV_REST_API_URL` + `KV_REST_API_TOKEN`. A `rediss://` `KV_URL` / `REDIS_URL` alone is **not** enough for the REST client.
 
 ### 4.2 Presence heartbeat protocol
 
-* Clients heartbeat on a ~30s jittered interval to `POST /api/presence/heartbeat`.
-* API updates Redis `presence:{userId}` with 60–90s TTL.
+* Clients heartbeat on a ~15–20s jittered interval to `POST /api/presence/heartbeat`.
+* API updates Redis `presence:{userId}` with 30–45s TTL (`PRESENCE_TTL_SEC` ≈ 40s).
 * Unexpected disconnect → key expires; do not write Postgres on every tick.
 * Durable `last_seen` / status transitions → PostgreSQL only on login, logout, or significant changes.
 
@@ -194,6 +198,6 @@ Always run load tests against a **staging** project with Redis configured — ne
 ## 13. K6 Load Testing Requirements for Dating Features
 
 Load testing scripts in `k6/` must simulate realistic user behavior distributions:
-* **Presence & Heartbeat Storms:** 5,000 concurrent users hitting `/api/presence/heartbeat` at jittered 30s intervals.
+* **Presence & Heartbeat Storms:** 5,000 concurrent users hitting `/api/presence/heartbeat` at jittered 15–20s intervals.
 * **Swipe & Match Throughput:** Concurrent swipe requests maintaining sub-200ms p95 latency.
 * **Video Call Signaling & Token Minting:** Concurrent requests to `/api/livekit/token` verifying rate limits and token generation under load.

@@ -26,11 +26,12 @@ export const HOST_SALARY_FINANCIAL_ENTRY_TYPES = [
 /** wallet_ledger types that accrue into host salary (live). TARGET_BONUS is close-only. */
 export const HOST_SALARY_WALLET_TYPES = ['HOST_EARN', 'TARGET_SHARE_TRUEUP'] as const;
 
-/** Spendable rewards — never salary. */
+/** Spendable / non-salary rewards — never enter host salary accrual. */
 export const NON_SALARY_REWARD_WALLET_TYPES = [
   'REWARD_STREAK',
   'REWARD_MISSION',
   'REWARD_MASTER_CHEST',
+  'REWARD_FIRST_CALL',
 ] as const;
 
 export type EarningsMoneyCategory =

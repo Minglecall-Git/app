@@ -124,7 +124,7 @@ export const K6_SCENARIOS: K6Scenario[] = [
     description:
       'Concurrent presence heartbeats. Smoke fans out a small burst with the admin JWT; full k6 targets 10k VUs / Redis-backed presence.',
     scriptPath: 'k6/presence_heartbeat.js',
-    acceptanceTarget: '10k VUs, jittered ~30s, near-zero Postgres presence writes',
+    acceptanceTarget: '10k VUs, jittered ~15–20s, near-zero Postgres presence writes',
     kind: 'concurrent_smoke',
     extraEnvHint: '-e VUS=1000 -e DURATION=2m',
     buildCli: (baseUrl) => cli('k6/presence_heartbeat.js', baseUrl, '-e VUS=1000 -e DURATION=2m'),

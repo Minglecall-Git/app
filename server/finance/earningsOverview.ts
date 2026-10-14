@@ -177,7 +177,8 @@ function mapWalletRowToLedger(
   } else if (
     type === 'REWARD_STREAK' ||
     type === 'REWARD_MISSION' ||
-    type === 'REWARD_MASTER_CHEST'
+    type === 'REWARD_MASTER_CHEST' ||
+    type === 'REWARD_FIRST_CALL'
   ) {
     category = 'reward';
     inSalary = false;

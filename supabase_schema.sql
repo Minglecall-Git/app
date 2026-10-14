@@ -2208,7 +2208,7 @@ CREATE TABLE IF NOT EXISTS public.wallet_ledger (
     call_id TEXT,
     transaction_type TEXT NOT NULL CHECK (transaction_type IN (
       'CALL_DEBIT', 'GIFT_DEBIT', 'HOST_EARN', 'TL_EARN', 'PURCHASE',
-      'REWARD_STREAK', 'REWARD_MISSION', 'REWARD_MASTER_CHEST',
+      'REWARD_STREAK', 'REWARD_MISSION', 'REWARD_MASTER_CHEST', 'REWARD_FIRST_CALL',
       'TARGET_SHARE_TRUEUP'
     )),
     amount NUMERIC NOT NULL,
@@ -2232,7 +2232,7 @@ BEGIN
     ADD CONSTRAINT wallet_ledger_transaction_type_check
     CHECK (transaction_type IN (
       'CALL_DEBIT', 'GIFT_DEBIT', 'HOST_EARN', 'TL_EARN', 'PURCHASE',
-      'REWARD_STREAK', 'REWARD_MISSION', 'REWARD_MASTER_CHEST',
+      'REWARD_STREAK', 'REWARD_MISSION', 'REWARD_MASTER_CHEST', 'REWARD_FIRST_CALL',
       'TARGET_SHARE_TRUEUP'
     ));
 EXCEPTION WHEN duplicate_object THEN
@@ -4419,8 +4419,238 @@ EXCEPTION WHEN unique_violation THEN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- =============================================================================
+-- Creator online-time flush (Redis pending → Postgres). Heartbeats never call this
+-- on every tick; logout / cron / flush-online invoke it with a delta.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.accrue_creator_online_seconds_atomic(
+    p_creator_id TEXT,
+    p_delta_seconds INT
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_delta INT;
+    v_secs BIGINT;
+    v_hours NUMERIC;
+    v_last DATE;
+    v_updated TIMESTAMPTZ;
+BEGIN
+    IF p_creator_id IS NULL OR TRIM(p_creator_id) = '' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error_code', 'INVALID_INPUT',
+            'error_message', 'creator_id required'
+        );
+    END IF;
+
+    v_delta := GREATEST(0, COALESCE(p_delta_seconds, 0));
+    IF v_delta <= 0 THEN
+        SELECT active_online_seconds, active_online_hours, last_active_date, updated_at
+          INTO v_secs, v_hours, v_last, v_updated
+        FROM public.creator_metrics
+        WHERE creator_id = p_creator_id;
+
+        RETURN jsonb_build_object(
+            'success', true,
+            'flushed_seconds', 0,
+            'active_online_seconds', COALESCE(v_secs, 0),
+            'active_online_hours', COALESCE(v_hours, 0),
+            'last_active_date', v_last,
+            'updated_at', v_updated
+        );
+    END IF;
+
+    INSERT INTO public.creator_metrics (creator_id, active_online_seconds, active_online_hours, last_active_date, updated_at)
+    VALUES (p_creator_id, 0, 0, (timezone('utc', now()))::date, now())
+    ON CONFLICT (creator_id) DO NOTHING;
+
+    SELECT COALESCE(active_online_seconds, 0)
+      INTO v_secs
+    FROM public.creator_metrics
+    WHERE creator_id = p_creator_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error_code', 'METRICS_NOT_FOUND',
+            'error_message', 'creator_metrics row missing'
+        );
+    END IF;
+
+    v_secs := v_secs + v_delta;
+    v_hours := ROUND((v_secs::numeric / 3600), 2);
+    v_last := (timezone('utc', now()))::date;
+    v_updated := now();
+
+    UPDATE public.creator_metrics
+    SET active_online_seconds = v_secs,
+        active_online_hours = v_hours,
+        last_active_date = v_last,
+        updated_at = v_updated
+    WHERE creator_id = p_creator_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'flushed_seconds', v_delta,
+        'active_online_seconds', v_secs,
+        'active_online_hours', v_hours,
+        'last_active_date', v_last,
+        'updated_at', v_updated
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =============================================================================
+-- Atomic first-call bonus (FOR UPDATE + metrics claim date + ledger idempotency)
+-- Credits earnings_coins (host earnings). Excluded from salary via REWARD_FIRST_CALL.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.claim_first_call_bonus_atomic(
+    p_creator_id TEXT,
+    p_bonus_coins INT,
+    p_bonus_usd NUMERIC,
+    p_claim_date DATE,
+    p_metadata JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_coins INT;
+    v_usd NUMERIC;
+    v_key TEXT;
+    v_earnings BIGINT;
+    v_bonus_coins BIGINT;
+    v_bonus_usd NUMERIC;
+    v_claimed DATE;
+    v_call_id TEXT;
+BEGIN
+    IF p_creator_id IS NULL OR TRIM(p_creator_id) = '' OR p_claim_date IS NULL THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error_code', 'INVALID_INPUT',
+            'error_message', 'creator_id and claim_date required'
+        );
+    END IF;
+
+    v_coins := GREATEST(1, COALESCE(p_bonus_coins, 0));
+    v_usd := GREATEST(0, COALESCE(p_bonus_usd, 0));
+    v_key := 'first_call_bonus:' || p_creator_id || ':' || p_claim_date::text;
+    v_call_id := v_key;
+
+    -- Lock profile earnings
+    SELECT earnings_coins INTO v_earnings
+    FROM public.profiles
+    WHERE id = p_creator_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error_code', 'NO_PROFILE',
+            'error_message', 'Creator profile not found'
+        );
+    END IF;
+
+    INSERT INTO public.creator_metrics (creator_id, updated_at)
+    VALUES (p_creator_id, now())
+    ON CONFLICT (creator_id) DO NOTHING;
+
+    SELECT first_call_bonus_claimed_date, bonus_earned_coins, bonus_earned_usd
+      INTO v_claimed, v_bonus_coins, v_bonus_usd
+    FROM public.creator_metrics
+    WHERE creator_id = p_creator_id
+    FOR UPDATE;
+
+    IF v_claimed = p_claim_date THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'already_claimed', true,
+            'error_code', 'ALREADY_CLAIMED',
+            'error_message', 'Daily first call bonus already claimed today.',
+            'bonus_earned_coins', COALESCE(v_bonus_coins, 0),
+            'bonus_earned_usd', COALESCE(v_bonus_usd, 0),
+            'new_earnings_coins', COALESCE(v_earnings, 0)
+        );
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM public.wallet_ledger
+        WHERE idempotency_key = v_key
+           OR (call_id = v_call_id AND billing_minute = 0 AND transaction_type = 'REWARD_FIRST_CALL' AND user_id = p_creator_id)
+    ) THEN
+        SELECT earnings_coins INTO v_earnings FROM public.profiles WHERE id = p_creator_id;
+        SELECT bonus_earned_coins, bonus_earned_usd
+          INTO v_bonus_coins, v_bonus_usd
+        FROM public.creator_metrics WHERE creator_id = p_creator_id;
+        RETURN jsonb_build_object(
+            'success', true,
+            'duplicate', true,
+            'already_claimed', true,
+            'error_code', 'ALREADY_CLAIMED',
+            'bonus_coins', 0,
+            'bonus_usd', 0,
+            'bonus_earned_coins', COALESCE(v_bonus_coins, 0),
+            'bonus_earned_usd', COALESCE(v_bonus_usd, 0),
+            'new_earnings_coins', COALESCE(v_earnings, 0)
+        );
+    END IF;
+
+    UPDATE public.profiles
+    SET earnings_coins = COALESCE(earnings_coins, 0) + v_coins,
+        updated_at = now()
+    WHERE id = p_creator_id
+    RETURNING earnings_coins INTO v_earnings;
+
+    UPDATE public.creator_metrics
+    SET first_call_bonus_claimed_date = p_claim_date,
+        bonus_earned_coins = COALESCE(bonus_earned_coins, 0) + v_coins,
+        bonus_earned_usd = ROUND((COALESCE(bonus_earned_usd, 0) + v_usd)::numeric, 2),
+        last_active_date = p_claim_date,
+        updated_at = now()
+    WHERE creator_id = p_creator_id
+    RETURNING bonus_earned_coins, bonus_earned_usd
+      INTO v_bonus_coins, v_bonus_usd;
+
+    INSERT INTO public.wallet_ledger (
+        user_id, call_id, transaction_type, amount, balance_after, billing_minute, metadata, idempotency_key
+    ) VALUES (
+        p_creator_id, v_call_id, 'REWARD_FIRST_CALL', v_coins, v_earnings, 0,
+        COALESCE(p_metadata, '{}'::jsonb) || jsonb_build_object('kind', 'first_call_bonus', 'side', 'host'),
+        v_key
+    );
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'duplicate', false,
+        'already_claimed', false,
+        'bonus_coins', v_coins,
+        'bonus_usd', v_usd,
+        'bonus_earned_coins', COALESCE(v_bonus_coins, 0),
+        'bonus_earned_usd', COALESCE(v_bonus_usd, 0),
+        'new_earnings_coins', COALESCE(v_earnings, 0)
+    );
+EXCEPTION WHEN unique_violation THEN
+    SELECT earnings_coins INTO v_earnings FROM public.profiles WHERE id = p_creator_id;
+    SELECT bonus_earned_coins, bonus_earned_usd
+      INTO v_bonus_coins, v_bonus_usd
+    FROM public.creator_metrics WHERE creator_id = p_creator_id;
+    RETURN jsonb_build_object(
+        'success', true,
+        'duplicate', true,
+        'already_claimed', true,
+        'error_code', 'ALREADY_CLAIMED',
+        'bonus_coins', 0,
+        'bonus_usd', 0,
+        'bonus_earned_coins', COALESCE(v_bonus_coins, 0),
+        'bonus_earned_usd', COALESCE(v_bonus_usd, 0),
+        'new_earnings_coins', COALESCE(v_earnings, 0)
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 GRANT EXECUTE ON FUNCTION public.gift_spend_atomic(TEXT, TEXT, TEXT, INT, INT, INT, TEXT, JSONB) TO postgres, service_role;
 GRANT EXECUTE ON FUNCTION public.complete_coin_purchase_atomic(TEXT, INT, TEXT, UUID, JSONB) TO postgres, service_role;
+GRANT EXECUTE ON FUNCTION public.accrue_creator_online_seconds_atomic(TEXT, INT) TO postgres, service_role;
+GRANT EXECUTE ON FUNCTION public.claim_first_call_bonus_atomic(TEXT, INT, NUMERIC, DATE, JSONB) TO postgres, service_role;
 
 -- =============================================================================
 -- OFFICE RBAC (Minglecall staff only — not TL / male / female / host marketplace roles)

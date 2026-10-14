@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/presence/heartbeat — Redis-only native Next route.
+ * Refreshes `presence:{userId}` with PRESENCE_TTL_SEC (~40s; clients tick ~15–20s).
  * No in-process broadcast (Realtime/Redis are source of truth).
  */
 export async function POST(req: NextRequest) {

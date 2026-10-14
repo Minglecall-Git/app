@@ -2,13 +2,17 @@ import { NextRequest } from 'next/server';
 import { mapCreatorMetricsRow } from '../../../../lib/handlers/creatorMetricsMap';
 import { createServiceClient, jsonErr, jsonOk, requireAuth } from '../../../../lib/nextAuth';
 import { parseJsonBody } from '../../../../lib/nextRequest';
+import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** POST /api/creator/first-call-bonus — daily bonus via creator_metrics (native Next). */
+/** POST /api/creator/first-call-bonus — atomic RPC claim (native Next). */
 export async function POST(req: NextRequest) {
   try {
+    const limited = await enforceRateLimit(req, 'sensitive');
+    if (limited) return limited;
+
     const auth = await requireAuth(req);
     if (!auth.ok) { return jsonErr(auth.status, auth.error.message, auth.error.code); }
 
@@ -32,74 +36,78 @@ export async function POST(req: NextRequest) {
     );
     const bonusUSD = Number(Number(cfg?.daily_first_call_bonus_usd || 1).toFixed(2));
 
-    const { data: metrics } = await client
+    const { data: rpcRaw, error: rpcErr } = await client.rpc('claim_first_call_bonus_atomic', {
+      p_creator_id: creatorId,
+      p_bonus_coins: bonusCoins,
+      p_bonus_usd: bonusUSD,
+      p_claim_date: todayStr,
+      p_metadata: {
+        kind: 'first_call_bonus',
+        source: 'next-native',
+        claimDate: todayStr,
+      },
+    });
+
+    if (rpcErr) {
+      console.error('[next /api/creator/first-call-bonus] RPC', rpcErr.message);
+      return jsonErr(500, 'First call bonus RPC failed', 'BONUS_RPC_FAILED');
+    }
+
+    const result = typeof rpcRaw === 'string' ? JSON.parse(rpcRaw) : rpcRaw || {};
+    const code = String(result?.error_code || result?.code || '');
+
+    if (result?.already_claimed || code === 'ALREADY_CLAIMED') {
+      const { data: metrics } = await client
+        .from('creator_metrics')
+        .select('*')
+        .eq('creator_id', creatorId)
+        .maybeSingle();
+      return jsonOk({
+        success: false,
+        alreadyClaimed: true,
+        awarded: false,
+        message: result?.error_message || 'Daily first call bonus already claimed today.',
+        metrics: metrics
+          ? mapCreatorMetricsRow(metrics as Record<string, unknown>)
+          : {
+              creatorId,
+              firstCallBonusClaimedDate: todayStr,
+              bonusEarnedCoins: Number(result?.bonus_earned_coins || 0),
+              bonusEarnedUSD: Number(result?.bonus_earned_usd || 0),
+            },
+        runtime: 'next-native',
+      });
+    }
+
+    if (!result?.success) {
+      return jsonErr(
+        400,
+        result?.error_message || 'First call bonus failed',
+        code || 'BONUS_FAILED',
+        { awarded: false }
+      );
+    }
+
+    const { data: saved } = await client
       .from('creator_metrics')
       .select('*')
       .eq('creator_id', creatorId)
       .maybeSingle();
 
-    if (metrics && String(metrics.first_call_bonus_claimed_date || '') === todayStr) {
-      return jsonOk({
-        success: false,
-        alreadyClaimed: true,
-        awarded: false,
-        message: 'Daily first call bonus already claimed today.',
-        metrics: {
-          creatorId,
-          firstCallBonusClaimedDate: todayStr,
-          bonusEarnedCoins: Number(metrics.bonus_earned_coins || 0),
-          bonusEarnedUSD: Number(metrics.bonus_earned_usd || 0),
-        },
-        runtime: 'next-native',
-      });
-    }
-
-    const nextBonusCoins = Number(metrics?.bonus_earned_coins || 0) + bonusCoins;
-    const nextBonusUsd = Number((Number(metrics?.bonus_earned_usd || 0) + bonusUSD).toFixed(2));
-
-    const { data: saved, error: mErr } = await client
-      .from('creator_metrics')
-      .upsert(
-        {
-          creator_id: creatorId,
-          first_call_bonus_claimed_date: todayStr,
-          bonus_earned_coins: nextBonusCoins,
-          bonus_earned_usd: nextBonusUsd,
-          last_active_date: todayStr,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'creator_id' }
-      )
-      .select('*')
-      .maybeSingle();
-
-    if (mErr) {
-      return jsonErr(500, mErr.message, 'METRICS_UPDATE_FAILED', { awarded: false });
-    }
-
-    const { data: profile } = await client
-      .from('profiles')
-      .select('earnings_coins')
-      .eq('id', creatorId)
-      .maybeSingle();
-    const newEarnings = Number(profile?.earnings_coins || 0) + bonusCoins;
-    await client
-      .from('profiles')
-      .update({ earnings_coins: newEarnings, updated_at: new Date().toISOString() })
-      .eq('id', creatorId);
-
     return jsonOk({
       success: true,
-      awarded: true,
-      bonusCoins,
-      bonusUSD,
+      awarded: !result.duplicate,
+      duplicate: Boolean(result.duplicate),
+      bonusCoins: Number(result.bonus_coins ?? bonusCoins) || bonusCoins,
+      bonusUSD: Number(result.bonus_usd ?? bonusUSD) || bonusUSD,
+      earningsCoins: Number(result.new_earnings_coins || 0),
       metrics: saved
         ? mapCreatorMetricsRow(saved as Record<string, unknown>)
         : {
             creatorId,
             firstCallBonusClaimedDate: todayStr,
-            bonusEarnedCoins: nextBonusCoins,
-            bonusEarnedUSD: nextBonusUsd,
+            bonusEarnedCoins: Number(result.bonus_earned_coins || 0),
+            bonusEarnedUSD: Number(result.bonus_earned_usd || 0),
           },
       runtime: 'next-native',
     });
