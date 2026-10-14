@@ -1,9 +1,12 @@
 import { NextRequest } from 'next/server';
+import { bufferCallLedgerMinute, flushCallLedger, pendingLedgerCoins } from '../../../../lib/callLedger';
+import { updateCallLogs } from '../../../../lib/handlers/callLogsDb';
 import {
-  addCallMinuteTotals,
-  updateCallLogs,
-} from '../../../../lib/handlers/callLogsDb';
-import { deleteCallState, setPresence } from '../../../../lib/redis';
+  deleteCallState,
+  getCallLedger,
+  isRedisConfigured,
+  setPresence,
+} from '../../../../lib/redis';
 import { createServiceClient, jsonErr, jsonOk, requireAuth } from '../../../../lib/nextAuth';
 import { parseJsonBody } from '../../../../lib/nextRequest';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
@@ -11,7 +14,10 @@ import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** POST /api/calls/burn — atomic RPC + call_logs (native Next). */
+/**
+ * POST /api/calls/burn — buffer billing minute in Redis call:ledger:{callId}.
+ * Wallet + call_logs flush runs on call termination (see calls sync / terminate).
+ */
 export async function POST(req: NextRequest) {
   try {
     const limited = await enforceRateLimit(req, 'sensitive');
@@ -50,6 +56,10 @@ export async function POST(req: NextRequest) {
     const billingMinute = Number(body.billingMinute);
     if (!callId || !Number.isFinite(billingMinute) || billingMinute < 1) {
       return jsonErr(400, 'callId and billingMinute (>=1) are required', 'INVALID_INPUT');
+    }
+
+    if (!isRedisConfigured()) {
+      return jsonErr(503, 'Billing buffer unavailable — Redis is not configured', 'REDIS_UNAVAILABLE');
     }
 
     const client = createServiceClient();
@@ -166,141 +176,101 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const metadata = {
+    // Soft balance check against live balance minus already-buffered minutes
+    const { data: callerProfile } = await client
+      .from('profiles')
+      .select('coin_balance')
+      .eq('id', callerId)
+      .maybeSingle();
+    const liveBalance = Number(callerProfile?.coin_balance || 0);
+    const existingLedger = await getCallLedger(callId);
+    const alreadyPending = pendingLedgerCoins(existingLedger);
+    const minuteAlreadyBuffered = Boolean(
+      existingLedger?.minutes?.some((m) => m.billingMinute === billingMinute)
+    );
+    const needForThisMinute = minuteAlreadyBuffered ? 0 : coinsBurned;
+    if (liveBalance < alreadyPending + needForThisMinute) {
+      // Flush whatever was already buffered, then fail the call
+      await flushCallLedger(client, callId);
+      const endIso = new Date().toISOString();
+      await updateCallLogs(
+        client,
+        {
+          status: 'failed',
+          end_reason: 'INSUFFICIENT_BALANCE',
+          ended_at: endIso,
+          end_time: endIso,
+          updated_at: endIso,
+        },
+        (q) => q.eq('id', callId)
+      );
+      try {
+        await setPresence(callerId, 'online');
+        await setPresence(receiverId, 'online');
+        await deleteCallState(callId);
+      } catch {
+        /* optional */
+      }
+      const { data: after } = await client
+        .from('profiles')
+        .select('coin_balance')
+        .eq('id', callerId)
+        .maybeSingle();
+      return jsonErr(402, 'Insufficient coin balance for next billing minute', 'INSUFFICIENT_BALANCE', {
+        success: false,
+        status: 'INSUFFICIENT_BALANCE',
+        data: {
+          newCallerBalance: Number(after?.coin_balance) || 0,
+          callId,
+          billingMinute,
+        },
+      });
+    }
+
+    const buffered = await bufferCallLedgerMinute({
+      callId,
       billingMinute,
+      coinsBurned,
+      hostCoinsEarned,
+      tlCoinsEarned,
+      tlId,
       isFriendPair,
-      ratePerMin: coinsBurned,
+      receiverId,
+      callerId,
+      receiverRole: String(recvRow.role || ''),
       hostSharePercent,
       tlSharePercent,
       usedOverride,
-      receiverId,
-      receiverRole: recvRow.role,
-      isFemaleCreator: isCreator,
-      source: 'next-native',
-    };
-
-    const { data: rpcRaw, error: rpcErr } = await client.rpc('burn_call_coins_atomic', {
-      p_caller_id: callerId,
-      p_receiver_id: receiverId,
-      p_tl_id: tlId,
-      p_call_id: callId,
-      p_billing_minute: billingMinute,
-      p_coins_burned: coinsBurned,
-      p_host_coins_earned: hostCoinsEarned,
-      p_tl_coins_earned: tlCoinsEarned,
-      p_metadata: metadata,
+      bufferedAt: new Date().toISOString(),
     });
 
-    if (rpcErr) {
-      console.error('[next /api/calls/burn] RPC', rpcErr.message);
-      return jsonErr(500, 'Billing RPC failed', 'BILLING_RPC_FAILED');
-    }
-
-    const result = typeof rpcRaw === 'string' ? JSON.parse(rpcRaw) : rpcRaw || {};
-    if (!result.success) {
-      const code =
-        result.code ||
-        (String(result.error_message || '').includes('INSUFFICIENT') ? 'INSUFFICIENT_BALANCE' : 'BURN_FAILED');
-      if (code === 'INSUFFICIENT_BALANCE') {
-        const endIso = new Date().toISOString();
-        await updateCallLogs(
-          client,
-          {
-            status: 'failed',
-            end_reason: 'INSUFFICIENT_BALANCE',
-            ended_at: endIso,
-            end_time: endIso,
-            updated_at: endIso,
-          },
-          (q) => q.eq('id', callId)
-        );
-        try {
-          await setPresence(callerId, 'online');
-          await setPresence(receiverId, 'online');
-          await deleteCallState(callId);
-        } catch {
-          /* optional */
-        }
-        return jsonErr(402, 'Insufficient coin balance for next billing minute', 'INSUFFICIENT_BALANCE', {
-          success: false,
-          status: 'INSUFFICIENT_BALANCE',
-          data: {
-            newCallerBalance: Number(result.new_caller_balance) || 0,
-            callId,
-            billingMinute,
-          },
-        });
-      }
-      return jsonErr(400, result.error_message || 'Burn failed', code);
-    }
-
-    const burned = Number(result.coins_burned ?? coinsBurned) || coinsBurned;
-    const hostEarned = Number(result.host_coins_earned ?? hostCoinsEarned) || 0;
-    const tlEarned = Number(result.tl_coins_earned ?? tlCoinsEarned) || 0;
-    const newCallerBalance = Number(result.new_caller_balance) || 0;
-    const newHostEarnings = Number(result.new_host_earnings) || 0;
-    const newTlEarnings = Number(result.new_tl_earnings) || 0;
-    const isDuplicate = Boolean(result.duplicate);
-
-    let callCoinsSpent = Number(callRow.coins_spent) || 0;
-    let callCoinsEarned = Number(callRow.coins_earned) || 0;
-
-    if (!isDuplicate) {
-      const burnPatch: Record<string, unknown> = {
-        status: 'active',
-        burn_rate_per_min: coinsBurned,
-        was_friend_call: isFriendPair,
-        team_leader_id: tlId || undefined,
-        ended_at: null,
-        end_time: null,
-        updated_at: new Date().toISOString(),
-      };
-      Object.keys(burnPatch).forEach((k) => burnPatch[k] === undefined && delete burnPatch[k]);
-      const added = await addCallMinuteTotals(
-        client,
-        callId,
-        burned,
-        hostEarned,
-        (billingMinute - 1) * 60,
-        burnPatch
-      );
-      if (!added.error && added.coinsSpent != null && added.coinsEarned != null) {
-        callCoinsSpent = added.coinsSpent;
-        callCoinsEarned = added.coinsEarned;
-      } else {
-        callCoinsSpent += burned;
-        callCoinsEarned += hostEarned;
-      }
-    } else {
-      const { data: fresh } = await client
-        .from('call_logs')
-        .select('coins_spent, coins_earned')
-        .eq('id', callId)
-        .maybeSingle();
-      if (fresh) {
-        callCoinsSpent = Number(fresh.coins_spent) || callCoinsSpent;
-        callCoinsEarned = Number(fresh.coins_earned) || callCoinsEarned;
-      }
-    }
+    const pendingCoins = buffered.pendingCoins;
+    const estimatedBalance = Math.max(0, liveBalance - pendingCoins);
+    const callCoinsSpent = (Number(callRow.coins_spent) || 0) + pendingCoins;
+    const callCoinsEarned =
+      (Number(callRow.coins_earned) || 0) +
+      buffered.doc.minutes.reduce((s, m) => s + (Number(m.hostCoinsEarned) || 0), 0);
 
     return jsonOk({
       success: true,
       data: {
         callId,
         billingMinute,
-        coinsBurned: burned,
-        hostCoinsEarned: hostEarned,
-        tlCoinsEarned: tlEarned,
-        platformRetained: Math.max(0, burned - hostEarned - tlEarned),
-        newCallerBalance,
-        newHostEarnings,
-        newTlEarnings,
+        coinsBurned,
+        hostCoinsEarned,
+        tlCoinsEarned,
+        platformRetained: Math.max(0, coinsBurned - hostCoinsEarned - tlCoinsEarned),
+        newCallerBalance: estimatedBalance,
+        newHostEarnings: 0,
+        newTlEarnings: 0,
         callCoinsSpent,
         callCoinsEarned,
         billedMinutes: billingMinute,
-        duplicate: isDuplicate,
+        duplicate: buffered.duplicate,
         isFriendRate: isFriendPair,
         isFemaleCreator: isCreator,
+        buffered: true,
+        pendingCoins,
       },
       runtime: 'next-native',
     });

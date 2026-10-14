@@ -200,4 +200,30 @@ export const K6_SCENARIOS: K6Scenario[] = [
       ),
     runSmoke: ({ concurrency, baseUrl }) => postSmoke('billing_gift', concurrency, baseUrl),
   },
+  {
+    id: 'swipe_throughput',
+    title: 'Swipe / discovery throughput',
+    description:
+      'Concurrent discovery + like/pass. Full k6 targets p95 < 200ms; smoke checks auth/validation only.',
+    scriptPath: 'k6/swipe_throughput.js',
+    acceptanceTarget: 'p95 < 200ms under concurrent swipe/discovery load',
+    kind: 'route_auth_only',
+    extraEnvHint: '-e TARGET_USER_ID=<uuid> -e VUS=50 -e DURATION=1m',
+    buildCli: (baseUrl) =>
+      cli('k6/swipe_throughput.js', baseUrl, '-e TARGET_USER_ID=<uuid> -e VUS=50 -e DURATION=1m'),
+    runSmoke: ({ concurrency, baseUrl }) => postSmoke('swipe_throughput', concurrency, baseUrl),
+  },
+  {
+    id: 'livekit_token',
+    title: 'LiveKit token minting',
+    description:
+      'Concurrent /api/livekit/token requests. Smoke verifies auth/validation; full k6 needs CALL_ID for real rooms.',
+    scriptPath: 'k6/livekit_token.js',
+    acceptanceTarget: 'Token mint under concurrency, http_req p95 < 500ms',
+    kind: 'route_auth_only',
+    extraEnvHint: '-e CALL_ID=<uuid> -e VUS=100 -e DURATION=1m',
+    buildCli: (baseUrl) =>
+      cli('k6/livekit_token.js', baseUrl, '-e CALL_ID=<uuid> -e VUS=100 -e DURATION=1m'),
+    runSmoke: ({ concurrency, baseUrl }) => postSmoke('livekit_token', concurrency, baseUrl),
+  },
 ];

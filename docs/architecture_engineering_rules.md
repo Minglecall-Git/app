@@ -92,6 +92,7 @@ Required names: see `docs/connection_pooling_and_env.md` and `.env.example`.
 | **Cached Profile** | `profile:{userId}` | 30–120 seconds | Optional hot public attributes |
 | **Rate Limit** | `rate:{userId}:{endpoint}` | Short window (e.g. 10–60s) | Abuse protection |
 | **Call Room State** | `call:{callId}` | Dynamic (call max) | Ephemeral call coordination when used |
+| **Call billing ledger** | `call:ledger:{callId}` | Call max (~4h) | Buffered per-minute burns; flush to wallet_ledger + call_logs on call end |
 | **Creator online accrual** | `creator:online:{userId}` (+ `creator:online:dirty`) | ~7 days | Pending active-online seconds; flush to Postgres on logout/cron — never on each heartbeat tick |
 
 Use **HTTPS REST** credentials: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`, or `KV_REST_API_URL` + `KV_REST_API_TOKEN`. A `rediss://` `KV_URL` / `REDIS_URL` alone is **not** enough for the REST client.

@@ -3,6 +3,7 @@ import { createServiceClient, jsonErr, jsonOk, requireAuth } from '../../../../.
 import { parseJsonBody } from '../../../../../lib/nextRequest';
 import { assertTargetExists, findMatchPair, mapMatchRow } from '../../../../../lib/handlers/matches';
 import { isBlockedEitherWay } from '../../../../../lib/handlers/social';
+import { getPresence, isRedisConfigured } from '../../../../../lib/redis';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,19 @@ export async function POST(req: NextRequest) {
     const giftsCoins = Math.max(0, Number(parsed.data?.giftsCoins || 0) || 0);
     if (!targetUserId || targetUserId === auth.profileId) {
       return jsonErr(400, 'Invalid targetUserId', 'INVALID_TARGET');
+    }
+
+    // Architecture §11: only pair candidates with an active Redis presence lease
+    if (!isRedisConfigured()) {
+      return jsonErr(503, 'Presence service unavailable — Redis is not configured', 'REDIS_UNAVAILABLE');
+    }
+    const targetPresence = await getPresence(targetUserId);
+    if (!targetPresence || targetPresence === 'offline') {
+      return jsonErr(
+        409,
+        'Target user is not online (presence lease expired)',
+        'TARGET_OFFLINE'
+      );
     }
 
     const client = createServiceClient();

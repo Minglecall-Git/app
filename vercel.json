@@ -7,6 +7,10 @@
     {
       "path": "/api/creator/jobs/flush-online-seconds",
       "schedule": "15 0 * * *"
+    },
+    {
+      "path": "/api/calls/jobs/flush-ledgers",
+      "schedule": "30 0 * * *"
     }
   ]
 }

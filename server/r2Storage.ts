@@ -5,6 +5,7 @@ import {
   HeadObjectCommand,
   HeadBucketCommand,
   ListObjectsV2Command,
+  DeleteObjectCommand,
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -509,20 +510,52 @@ export async function testR2Connectivity(customConfig?: R2CredentialsConfig): Pr
 
   try {
     const client = getR2Client(cfg);
-    // Ping bucket using ListObjectsV2Command with MaxKeys=1 to check bucket access & auth
-    const command = new ListObjectsV2Command({
-      Bucket: bucket,
-      MaxKeys: 1,
-    });
-    const sendPromise = client.send(command);
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        const err = new Error('R2 probe timed out after 10s');
-        (err as any).name = 'TimeoutError';
-        reject(err);
-      }, 10_000);
-    });
-    await Promise.race([sendPromise, timeoutPromise]);
+    // Probe with Put/Head/Delete — Object Read & Write is enough.
+    // ListObjectsV2 often 403s without Admin Read even when uploads work.
+    const probeKey = `_health/r2-probe-${Date.now()}.txt`;
+    const probeBody = Buffer.from('minglecall-r2-ok', 'utf8');
+    const withTimeout = <T>(p: Promise<T>) => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          const err = new Error('R2 probe timed out after 10s');
+          (err as any).name = 'TimeoutError';
+          reject(err);
+        }, 10_000);
+      });
+      return Promise.race([p, timeoutPromise]);
+    };
+
+    await withTimeout(
+      client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: probeKey,
+          Body: probeBody,
+          ContentType: 'text/plain',
+          ContentLength: probeBody.length,
+        })
+      )
+    );
+    await withTimeout(
+      client.send(
+        new HeadObjectCommand({
+          Bucket: bucket,
+          Key: probeKey,
+        })
+      )
+    );
+    try {
+      await withTimeout(
+        client.send(
+          new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: probeKey,
+          })
+        )
+      );
+    } catch {
+      // Non-fatal: write+head already proved credentials/bucket access.
+    }
 
     const latencyMs = Math.round(performance.now() - startTime);
     return {
@@ -543,14 +576,22 @@ export async function testR2Connectivity(customConfig?: R2CredentialsConfig): Pr
       errMsg = `Bucket "${bucket}" was not found in Cloudflare R2 account "${accountId}". Create the bucket or fix R2_BUCKET_NAME.`;
     } else if (
       err.name === 'InvalidAccessKeyId' ||
+      err.name === 'SignatureDoesNotMatch' ||
+      errMsg.includes('InvalidAccessKeyId') ||
+      errMsg.includes('SignatureDoesNotMatch')
+    ) {
+      errMsg =
+        `R2 rejected the Access Key / Secret for account "${accountId}". Create a new S3 API token in Cloudflare → R2 → Manage R2 API Tokens ` +
+        `(not a general Cloudflare API token), paste Access Key ID + Secret into R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY, and fully restart Next.js.`;
+    } else if (
       err.name === 'AccessDenied' ||
       errMsg.includes('Access Denied') ||
       status === 403
     ) {
       errMsg =
-        `R2 Access Denied (403) for bucket "${bucket}". In Cloudflare → R2 → Manage R2 API Tokens, create a new S3 API token with ` +
-        `Object Read & Write (and Admin Read for list) on "${bucket}", then update R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY in .env.local and restart Next.js. ` +
-        `Confirm R2_ACCOUNT_ID matches the account that owns the bucket.`;
+        `R2 Access Denied (403) for bucket "${bucket}". Keys are present but Cloudflare rejected them. ` +
+        `In Cloudflare → R2 → Manage R2 API Tokens, create a new S3 API token with Object Read & Write on "${bucket}", ` +
+        `update R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY in .env.local, confirm R2_ACCOUNT_ID owns that bucket, restart Next.js.`;
     }
 
     return {

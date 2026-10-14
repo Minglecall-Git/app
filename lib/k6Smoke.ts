@@ -11,6 +11,8 @@ const SCENARIO_IDS = [
   'chat_send',
   'billing_burn',
   'billing_gift',
+  'swipe_throughput',
+  'livekit_token',
 ] as const;
 
 export const K6_SMOKE_DEFAULT_CONCURRENCY = 5;
@@ -356,6 +358,88 @@ async function smokeBillingBurnRoute(base: string, authorization: string) {
   return { steps, metrics: null as K6SmokeResult['metrics'] };
 }
 
+async function smokeSwipeRoute(base: string, authorization: string) {
+  const steps: K6SmokeStep[] = [];
+  const disc = await timedFetch(`${base}/api/users?limit=20`, {
+    method: 'GET',
+    headers: { ...authHeader(authorization) },
+  });
+  const discOk =
+    disc.status === 200 || disc.status === 401 || disc.status === 403 || disc.status === 404;
+  steps.push({
+    id: 'discovery',
+    label: 'GET /api/users?limit=20',
+    ok: discOk,
+    latencyMs: disc.latencyMs,
+    detail: `HTTP ${disc.status}`,
+    data: { status: disc.status },
+  });
+
+  const like = await timedFetch(`${base}/api/v1/matches/like`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeader(authorization),
+    },
+    body: JSON.stringify({}),
+  });
+  const likeOk =
+    like.status === 400 || like.status === 401 || like.status === 403 || like.status === 422;
+  steps.push({
+    id: 'like-validation',
+    label: 'POST /api/v1/matches/like empty body (no write)',
+    ok: likeOk,
+    latencyMs: like.latencyMs,
+    detail: likeOk
+      ? `Validation/auth HTTP ${like.status}`
+      : `Unexpected HTTP ${like.status}`,
+    data: { status: like.status },
+  });
+  return { steps, metrics: null as K6SmokeResult['metrics'] };
+}
+
+async function smokeLivekitTokenRoute(base: string, authorization: string) {
+  const steps: K6SmokeStep[] = [];
+  const anon = await timedFetch(`${base}/api/livekit/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomName: 'k6_smoke_room' }),
+  });
+  const anonOk = anon.status === 401 || anon.status === 403;
+  steps.push({
+    id: 'token-anon',
+    label: 'POST /api/livekit/token without token',
+    ok: anonOk,
+    latencyMs: anon.latencyMs,
+    detail: anonOk
+      ? `Expected auth reject (HTTP ${anon.status})`
+      : `Unexpected HTTP ${anon.status}`,
+    data: { status: anon.status },
+  });
+
+  const bad = await timedFetch(`${base}/api/livekit/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeader(authorization),
+    },
+    body: JSON.stringify({}),
+  });
+  const badOk =
+    bad.status === 400 || bad.status === 401 || bad.status === 403 || bad.status === 422;
+  steps.push({
+    id: 'token-validation',
+    label: 'POST /api/livekit/token with auth + empty body',
+    ok: badOk,
+    latencyMs: bad.latencyMs,
+    detail: badOk
+      ? `Validation/auth HTTP ${bad.status}`
+      : `Unexpected HTTP ${bad.status}`,
+    data: { status: bad.status },
+  });
+  return { steps, metrics: null as K6SmokeResult['metrics'] };
+}
+
 async function smokeBillingGiftRoute(base: string, authorization: string) {
   const steps: K6SmokeStep[] = [];
   const anon = await timedFetch(`${base}/api/gifts/send`, {
@@ -423,6 +507,10 @@ export async function runK6Smoke(
     pack = await smokeBillingBurnRoute(base, authorization);
   } else if (id === 'billing_gift') {
     pack = await smokeBillingGiftRoute(base, authorization);
+  } else if (id === 'swipe_throughput') {
+    pack = await smokeSwipeRoute(base, authorization);
+  } else if (id === 'livekit_token') {
+    pack = await smokeLivekitTokenRoute(base, authorization);
   } else {
     return null;
   }

@@ -10,6 +10,8 @@ Acceptance targets from `docs/architecture_engineering_rules.md`:
 | Reconnect storm | `reconnect_storm.js` | 5k reconnect / ~30s |
 | Billing burn | `billing_burn.js` | 1k parallel burns, zero duplicate `CALL_DEBIT` |
 | Billing gift | `billing_gift.js` | Shared idempotency key, zero double-debits |
+| Swipe / discovery | `swipe_throughput.js` | Concurrent like/pass + discovery, p95 &lt; 200ms |
+| LiveKit tokens | `livekit_token.js` | Concurrent `/api/livekit/token` minting under load |
 
 Install [k6](https://k6.io), then:
 

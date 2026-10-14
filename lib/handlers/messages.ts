@@ -232,6 +232,11 @@ export async function handleConversationPage(
     return jsonErr(400, 'Invalid otherUserId', 'INVALID_OTHER');
   }
 
+  // Same block gate as POST /api/messages — deny history when either side blocked the other
+  if (await isBlockedEitherWay(client, me, otherUserId)) {
+    return jsonErr(403, 'Messaging is blocked for this conversation', 'BLOCKED');
+  }
+
   const url = new URL(req.url);
   const cursor = String(url.searchParams.get('cursor') || '').trim();
   let limit = Number(url.searchParams.get('limit') || 40);

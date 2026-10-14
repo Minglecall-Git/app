@@ -1,7 +1,7 @@
 /**
  * Upstash Redis — server-only. Never import from client components.
  * Keys: presence:{userId}, profile:{userId}, rate:{userId}:{endpoint}, call:{callId},
- * signup:{email}, creator:online:{userId}, creator:online:last:{userId}, creator:online:dirty
+ * call:ledger:{callId}, signup:{email}, creator:online:{userId}, creator:online:dirty
  *
  * Credential order: UPSTASH_REDIS_REST_* , then Vercel KV_REST_API_* , then https REDIS_URL / KV_URL.
  */
@@ -23,21 +23,88 @@ function httpUrl(value: string | undefined): string {
   return /^https?:\/\//i.test(url) ? url : '';
 }
 
+export type RedisCredentialSource = {
+  url: string;
+  token: string;
+  urlSource: string | null;
+  tokenSource: string | null;
+};
+
 /** Same env fallback order as documented above. */
-export function getRedisRestCredentials(): { url: string; token: string } {
-  const url =
-    httpUrl(process.env.UPSTASH_REDIS_REST_URL) ||
-    httpUrl(process.env.KV_REST_API_URL) ||
-    httpUrl(process.env.REDIS_URL) ||
-    httpUrl(process.env.KV_URL);
-  const token =
-    cleanEnv(process.env.UPSTASH_REDIS_REST_TOKEN) || cleanEnv(process.env.KV_REST_API_TOKEN);
-  return { url, token };
+export function getRedisRestCredentials(): RedisCredentialSource {
+  const upstashUrl = httpUrl(process.env.UPSTASH_REDIS_REST_URL);
+  const kvRestUrl = httpUrl(process.env.KV_REST_API_URL);
+  const redisHttpUrl = httpUrl(process.env.REDIS_URL);
+  const kvHttpUrl = httpUrl(process.env.KV_URL);
+  const upstashToken = cleanEnv(process.env.UPSTASH_REDIS_REST_TOKEN);
+  const kvToken = cleanEnv(process.env.KV_REST_API_TOKEN);
+
+  let url = '';
+  let urlSource: string | null = null;
+  if (upstashUrl) {
+    url = upstashUrl;
+    urlSource = 'UPSTASH_REDIS_REST_URL';
+  } else if (kvRestUrl) {
+    url = kvRestUrl;
+    urlSource = 'KV_REST_API_URL';
+  } else if (redisHttpUrl) {
+    url = redisHttpUrl;
+    urlSource = 'REDIS_URL';
+  } else if (kvHttpUrl) {
+    url = kvHttpUrl;
+    urlSource = 'KV_URL';
+  }
+
+  let token = '';
+  let tokenSource: string | null = null;
+  if (upstashToken) {
+    token = upstashToken;
+    tokenSource = 'UPSTASH_REDIS_REST_TOKEN';
+  } else if (kvToken) {
+    token = kvToken;
+    tokenSource = 'KV_REST_API_TOKEN';
+  }
+
+  return { url, token, urlSource, tokenSource };
 }
 
 export function isRedisConfigured(): boolean {
   const { url, token } = getRedisRestCredentials();
   return Boolean(url && token);
+}
+
+function redisHostLabel(url: string): string {
+  try {
+    return new URL(url).host || 'unknown-host';
+  } catch {
+    return 'invalid-url';
+  }
+}
+
+/** Normalize Upstash/undici failures for API + admin diagnostics (never include the token). */
+export function formatRedisError(err: unknown, fallback = 'Redis request failed'): string {
+  const { url, urlSource } = getRedisRestCredentials();
+  const host = url ? redisHostLabel(url) : 'unconfigured';
+  const source = urlSource || 'none';
+  const root = err as { message?: string; cause?: { message?: string; code?: string } | Error };
+  const message = String(root?.message || fallback);
+  const causeMsg =
+    root?.cause && typeof root.cause === 'object'
+      ? String((root.cause as { message?: string }).message || root.cause)
+      : '';
+  const causeCode =
+    root?.cause && typeof root.cause === 'object'
+      ? String((root.cause as { code?: string }).code || '')
+      : '';
+
+  if (/fetch failed/i.test(message) || causeCode === 'ENOTFOUND' || /ENOTFOUND/i.test(causeMsg)) {
+    const dns = causeCode || (causeMsg.match(/ENOTFOUND\s+(\S+)/)?.[0] ?? causeMsg) || 'network error';
+    return `Upstash REST unreachable (${dns}) via ${source} → ${host}. Set non-empty UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (HTTPS). A rediss:// REDIS_URL alone is not enough.`;
+  }
+  if (/unauthorized|forbidden|401|403/i.test(message) || /unauthorized|forbidden|401|403/i.test(causeMsg)) {
+    return `Upstash REST rejected credentials via ${source} → ${host}. Check UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_TOKEN).`;
+  }
+  return `${message} (via ${source} → ${host})`;
 }
 
 export function getRedis(): Redis | null {
@@ -73,6 +140,14 @@ export function rateLimitKey(userId: string, endpoint: string): string {
 export function callStateKey(callId: string): string {
   return `call:${callId}`;
 }
+
+/** Ephemeral per-call billing buffer (flushed to Postgres on call end). */
+export function callLedgerKey(callId: string): string {
+  return `call:ledger:${callId}`;
+}
+
+export const CALL_LEDGER_TTL_SEC = 4 * 60 * 60;
+export const CALL_LEDGER_DIRTY_SET = 'call:ledger:dirty';
 
 /** In-progress signup credentials (hashed password + metadata) — 1h TTL, keyed by normalized email. */
 export const PENDING_SIGNUP_TTL_SEC = 60 * 60;
@@ -143,8 +218,8 @@ export async function setPresence(
   try {
     await client.set(presenceKey(userId), status, { ex: ttlSec });
     return true;
-  } catch (err: any) {
-    throw new RedisUnavailableError(err?.message || 'Redis SET failed');
+  } catch (err: unknown) {
+    throw new RedisUnavailableError(formatRedisError(err, 'Redis SET failed'));
   }
 }
 
@@ -155,8 +230,8 @@ export async function deletePresence(userId: string): Promise<void> {
   }
   try {
     await client.del(presenceKey(userId));
-  } catch (err: any) {
-    throw new RedisUnavailableError(err?.message || 'Redis DEL failed');
+  } catch (err: unknown) {
+    throw new RedisUnavailableError(formatRedisError(err, 'Redis DEL failed'));
   }
 }
 
@@ -192,9 +267,9 @@ export async function mgetPresence(
       else out[id] = 'offline';
     });
     return out;
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof RedisUnavailableError) throw err;
-    throw new RedisUnavailableError(err?.message || 'Redis MGET failed');
+    throw new RedisUnavailableError(formatRedisError(err, 'Redis MGET failed'));
   }
 }
 
@@ -224,6 +299,96 @@ export async function deleteCallState(callId: string): Promise<void> {
   const client = getRedis();
   if (!client || !callId) return;
   await client.del(callStateKey(callId));
+}
+
+export type CallLedgerMinute = {
+  billingMinute: number;
+  coinsBurned: number;
+  hostCoinsEarned: number;
+  tlCoinsEarned: number;
+  tlId: string | null;
+  isFriendPair: boolean;
+  receiverId: string;
+  callerId: string;
+  receiverRole?: string;
+  hostSharePercent?: number;
+  tlSharePercent?: number;
+  usedOverride?: boolean;
+  bufferedAt: string;
+};
+
+export type CallLedgerDoc = {
+  callId: string;
+  callerId: string;
+  receiverId: string;
+  minutes: CallLedgerMinute[];
+  updatedAt: string;
+};
+
+export async function getCallLedger(callId: string): Promise<CallLedgerDoc | null> {
+  const client = getRedis();
+  if (!client || !callId) return null;
+  try {
+    const raw = await client.get<string>(callLedgerKey(callId));
+    if (!raw) return null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || !Array.isArray(parsed.minutes)) return null;
+    return parsed as CallLedgerDoc;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCallLedger(doc: CallLedgerDoc): Promise<void> {
+  const client = getRedis();
+  if (!client || !doc?.callId) {
+    throw new RedisUnavailableError(REDIS_NOT_CONFIGURED);
+  }
+  try {
+    await client.set(callLedgerKey(doc.callId), JSON.stringify(doc), { ex: CALL_LEDGER_TTL_SEC });
+    await client.sadd(CALL_LEDGER_DIRTY_SET, doc.callId);
+  } catch (err: unknown) {
+    throw new RedisUnavailableError(formatRedisError(err, 'Redis call ledger SET failed'));
+  }
+}
+
+/** Atomically take ledger for flush. Requeue with saveCallLedger on failure. */
+export async function takeCallLedger(callId: string): Promise<CallLedgerDoc | null> {
+  const client = getRedis();
+  if (!client || !callId) return null;
+  try {
+    const raw = await client.getdel<string>(callLedgerKey(callId));
+    await client.srem(CALL_LEDGER_DIRTY_SET, callId);
+    if (!raw) return null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || !Array.isArray(parsed.minutes)) return null;
+    return parsed as CallLedgerDoc;
+  } catch (err: unknown) {
+    throw new RedisUnavailableError(formatRedisError(err, 'Redis call ledger TAKE failed'));
+  }
+}
+
+export async function deleteCallLedger(callId: string): Promise<void> {
+  const client = getRedis();
+  if (!client || !callId) return;
+  try {
+    await client.del(callLedgerKey(callId));
+    await client.srem(CALL_LEDGER_DIRTY_SET, callId);
+  } catch {
+    /* best effort */
+  }
+}
+
+export async function listDirtyCallLedgerIds(limit = 100): Promise<string[]> {
+  const client = getRedis();
+  if (!client) return [];
+  try {
+    const members = await client.smembers(CALL_LEDGER_DIRTY_SET);
+    if (!Array.isArray(members)) return [];
+    return members.map(String).filter(Boolean).slice(0, Math.max(1, Math.min(limit, 200)));
+  } catch {
+    return [];
+  }
 }
 
 /** Simple fixed-window rate limit. Returns true if allowed. */

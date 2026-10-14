@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { flushCallLedger } from '../callLedger';
 import {
   deleteCallState,
   setCallState,
@@ -125,6 +126,23 @@ export async function handleCallsSync(
     end_reason: body.reason ? String(body.reason).slice(0, 120) : undefined,
   };
 
+  // Flush Redis billing buffer before finalizing end-state call_logs (authoritative coins)
+  let ledgerFlush: Awaited<ReturnType<typeof flushCallLedger>> | null = null;
+  if (END_STATUSES.has(callStatus)) {
+    try {
+      ledgerFlush = await flushCallLedger(client, callId);
+      if (!ledgerFlush.success) {
+        console.warn(
+          '[next /api/calls/sync] call ledger flush:',
+          ledgerFlush.code,
+          ledgerFlush.error
+        );
+      }
+    } catch (e: any) {
+      console.warn('[next /api/calls/sync] call ledger flush exception:', e?.message);
+    }
+  }
+
   if (END_STATUSES.has(callStatus)) {
     const { data: existing } = await client
       .from('call_logs')
@@ -135,8 +153,9 @@ export async function handleCallsSync(
       existing?.duration_seconds,
       body.durationSeconds || body.duration
     );
-    payload.coins_spent = maxCallEconomy(existing?.coins_spent, body.coinsSpent);
-    payload.coins_earned = maxCallEconomy(existing?.coins_earned, body.coinsEarned);
+    // Prefer post-flush DB totals; do not trust client coin estimates (avoids double-count)
+    payload.coins_spent = Number(existing?.coins_spent) || 0;
+    payload.coins_earned = Number(existing?.coins_earned) || 0;
     payload.ended_at = endedAt;
     payload.end_time = endedAt;
     if (!payload.end_reason) payload.end_reason = callStatus;
@@ -187,6 +206,19 @@ export async function handleCallsSync(
 
   return {
     status: 200 as const,
-    body: { success: true, callId, presenceUpdated: true, status: callStatus, runtime: 'next-native' },
+    body: {
+      success: true,
+      callId,
+      presenceUpdated: true,
+      status: callStatus,
+      ledgerFlush: ledgerFlush
+        ? {
+            flushedMinutes: ledgerFlush.flushedMinutes,
+            coinsSpent: ledgerFlush.coinsSpent,
+            success: ledgerFlush.success,
+          }
+        : undefined,
+      runtime: 'next-native',
+    },
   };
 }

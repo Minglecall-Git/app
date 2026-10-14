@@ -6,7 +6,7 @@ import { Redis } from '@upstash/redis';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { createServiceClient } from './nextAuth';
 import { getPooledDatabaseUrl } from './supabaseDb';
-import { getRedisRestCredentials } from './redis';
+import { formatRedisError, getRedisRestCredentials } from './redis';
 
 const CHANNEL_RE = /^admin-diag-[A-Za-z0-9_-]{6,64}$/;
 const NONCE_RE = /^[A-Za-z0-9_-]{6,80}$/;
@@ -107,27 +107,23 @@ function configHint(inspect: RedisEnvInspect): string {
   return parts.join(' ');
 }
 
-function redisCredentialSources(): { urlSource: string | null; tokenSource: string | null } {
-  const upstashUrl = httpUrl(process.env.UPSTASH_REDIS_REST_URL);
-  const kvRestUrl = httpUrl(process.env.KV_REST_API_URL);
-  const redisHttpUrl = httpUrl(process.env.REDIS_URL);
-  const kvHttpUrl = httpUrl(process.env.KV_URL);
-  const upstashToken = cleanEnv(process.env.UPSTASH_REDIS_REST_TOKEN);
-  const kvToken = cleanEnv(process.env.KV_REST_API_TOKEN);
+function redisCredentialSources(): { urlSource: string | null; tokenSource: string | null; host: string | null } {
+  const { url, urlSource, tokenSource } = getRedisRestCredentials();
+  let host: string | null = null;
+  if (url) {
+    try {
+      host = new URL(url).host;
+    } catch {
+      host = 'invalid-url';
+    }
+  }
+  return { urlSource, tokenSource, host };
+}
 
-  let urlSource: string | null = null;
-  if (upstashUrl) urlSource = 'UPSTASH_REDIS_REST_URL';
-  else if (kvRestUrl) urlSource = 'KV_REST_API_URL';
-  else if (redisHttpUrl) urlSource = 'REDIS_URL';
-  else if (kvHttpUrl) urlSource = 'KV_URL';
-
-  const tokenSource = upstashToken
-    ? 'UPSTASH_REDIS_REST_TOKEN'
-    : kvToken
-      ? 'KV_REST_API_TOKEN'
-      : null;
-
-  return { urlSource, tokenSource };
+function isAuthRejection(err: unknown): boolean {
+  const root = err as { message?: string; status?: number; cause?: { message?: string } };
+  const text = `${root?.message || ''} ${root?.cause?.message || ''} ${root?.status || ''}`;
+  return /unauthorized|forbidden|401|403|WRONGPASS|invalid.*token/i.test(text);
 }
 
 export type DiagnosticStep = {
@@ -299,6 +295,7 @@ async function runRedisFallback(input: ProbeInput): Promise<DiagnosticResult> {
     );
   }
 
+  const credMeta = redisCredentialSources();
   const tPing = Date.now();
   try {
     if (!profileId) throw new Error('Admin profile is missing');
@@ -306,15 +303,16 @@ async function runRedisFallback(input: ProbeInput): Promise<DiagnosticResult> {
     await client.set(key, 'ok', { ex: 30 });
     const value = await client.get(key);
     await client.del(key);
-    const { urlSource, tokenSource } = redisCredentialSources();
     const ok = value === 'ok';
     steps.push({
       id: 'redis-rtt',
       label: 'Upstash Redis round trip',
       ok,
       latencyMs: elapsed(tPing),
-      detail: ok ? 'SET / GET / DEL on a short-lived diagnostic key succeeded' : 'Diagnostic key read did not match',
-      data: { key, ttlSec: 30, urlSource, tokenSource },
+      detail: ok
+        ? `SET / GET / DEL ok via ${credMeta.urlSource} → ${credMeta.host}`
+        : 'Diagnostic key read did not match',
+      data: { key, ttlSec: 30, ...credMeta },
     });
   } catch (err) {
     const token = activeRedisToken();
@@ -323,7 +321,8 @@ async function runRedisFallback(input: ProbeInput): Promise<DiagnosticResult> {
       label: 'Upstash Redis round trip',
       ok: false,
       latencyMs: elapsed(tPing),
-      detail: redactSecret((err instanceof Error ? err.message : '') || 'Redis command failed', token),
+      detail: redactSecret(formatRedisError(err, 'Redis command failed'), token),
+      data: { ...credMeta },
     });
   }
 
@@ -339,7 +338,7 @@ async function runRedisFallback(input: ProbeInput): Promise<DiagnosticResult> {
       detail: known
         ? `presence:${profileId} = ${status}`
         : 'No presence lease found. Run the authenticated heartbeat step first.',
-      data: { status: status || null },
+      data: { status: status || null, ...credMeta },
     });
   } catch (err) {
     const token = activeRedisToken();
@@ -348,7 +347,8 @@ async function runRedisFallback(input: ProbeInput): Promise<DiagnosticResult> {
       label: 'Presence key read-back',
       ok: false,
       latencyMs: elapsed(tRead),
-      detail: redactSecret((err instanceof Error ? err.message : '') || 'Presence read failed', token),
+      detail: redactSecret(formatRedisError(err, 'Presence read failed'), token),
+      data: { ...credMeta },
     });
   }
 
@@ -363,15 +363,21 @@ async function runRedisFallback(input: ProbeInput): Promise<DiagnosticResult> {
       ok: false,
       latencyMs: elapsed(tBad),
       detail: 'A bogus Upstash token was accepted. Heartbeat cannot fail closed.',
+      data: { ...credMeta },
     });
   } catch (err) {
     const token = activeRedisToken();
+    const authRejected = isAuthRejection(err);
+    const detailRaw = formatRedisError(err, 'unauthorized');
     steps.push({
       id: 'redis-fallback',
       label: 'Invalid-token fallback',
-      ok: true,
+      ok: authRejected,
       latencyMs: elapsed(tBad),
-      detail: `Bogus token rejected (${redactSecret((err instanceof Error ? err.message : '') || 'unauthorized', token)}). Heartbeat maps this to HTTP 503 REDIS_UNAVAILABLE.`,
+      detail: authRejected
+        ? `Bogus token rejected (${redactSecret(detailRaw, token)}). Heartbeat maps this to HTTP 503 REDIS_UNAVAILABLE.`
+        : `Could not verify fail-closed auth — Redis host itself is unreachable (${redactSecret(detailRaw, token)}). Fix UPSTASH_REDIS_REST_URL first.`,
+      data: { ...credMeta, authRejected },
     });
   }
 
@@ -777,7 +783,7 @@ export async function collectInfraStatus(input: { profileId?: string }): Promise
           id: 'redis-presence',
           label: 'Redis Presence',
           mode: 'unavailable',
-          detail: redactSecret((err instanceof Error ? err.message : '') || 'Redis probe failed', activeRedisToken()),
+          detail: redactSecret(formatRedisError(err, 'Redis probe failed'), activeRedisToken()),
           latencyMs: elapsed(t0),
           checkedAt: nowIso(),
         });

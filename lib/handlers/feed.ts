@@ -93,7 +93,8 @@ function isEligibleTipHost(profile: any): boolean {
 export async function handleFeedList(req: NextRequest, auth: AuthOk, client: SupabaseClient) {
   const viewerId = auth.profileId;
   const url = new URL(req.url);
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 100);
+  // Architecture §5.2: cursor pages capped at 30–50
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 40, 1), 50);
   const cursor = sanitizeFeedText(url.searchParams.get('cursor'), 64) || null;
 
   let query = client
@@ -136,13 +137,22 @@ export async function handleFeedUserPosts(
   if (!targetUserId) return jsonErr(400, 'userId required', 'INVALID_USER');
 
   const url = new URL(req.url);
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 100);
-  const { data, error } = await client
+  // Architecture §5.2: cursor pages capped at 30–50
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 40, 1), 50);
+  const cursor = sanitizeFeedText(url.searchParams.get('cursor'), 64) || null;
+
+  let query = client
     .from('feed_posts')
     .select('*')
     .eq('creator_id', targetUserId)
     .order('created_at', { ascending: false })
     .limit(limit);
+
+  if (cursor) {
+    query = query.lt('created_at', cursor);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('[feed/user]', error.message);
@@ -155,11 +165,13 @@ export async function handleFeedUserPosts(
     viewerId,
     rows.map((r: any) => String(r.id))
   );
+  const nextCursor = rows.length === limit ? rows[rows.length - 1]?.created_at || null : null;
 
   return jsonOk({
     success: true,
     data: {
       posts: rows.map((r: any) => mapFeedPost(r, liked.has(String(r.id)))),
+      nextCursor,
     },
   });
 }

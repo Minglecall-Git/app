@@ -1353,6 +1353,69 @@ CREATE INDEX IF NOT EXISTS idx_creator_metrics_tier ON public.creator_metrics(pe
 CREATE INDEX IF NOT EXISTS idx_profiles_last_seen_at ON public.profiles(last_seen_at);
 
 -- ============================================================================
+-- 13c. AGENCY MEMBERSHIPS (formal host ↔ team leader with date audit)
+-- profiles.team_leader_id remains the hot pointer; this table is the audit trail.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.agency_memberships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    host_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    team_leader_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    start_date DATE NOT NULL DEFAULT (timezone('utc', now()))::date,
+    end_date DATE,
+    notes TEXT,
+    created_by_id TEXT REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT agency_memberships_dates_chk CHECK (
+      end_date IS NULL OR end_date >= start_date
+    ),
+    CONSTRAINT agency_memberships_host_ne_tl_chk CHECK (host_id <> team_leader_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agency_memberships_leader_active
+  ON public.agency_memberships (team_leader_id, start_date DESC)
+  WHERE end_date IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agency_memberships_host
+  ON public.agency_memberships (host_id, start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_agency_memberships_leader_host
+  ON public.agency_memberships (team_leader_id, host_id);
+
+-- At most one open membership per host
+CREATE UNIQUE INDEX IF NOT EXISTS agency_memberships_one_open_per_host_uidx
+  ON public.agency_memberships (host_id)
+  WHERE end_date IS NULL;
+
+ALTER TABLE public.agency_memberships ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "agency_memberships select own host" ON public.agency_memberships;
+DROP POLICY IF EXISTS "agency_memberships select tl" ON public.agency_memberships;
+DROP POLICY IF EXISTS "agency_memberships select admin" ON public.agency_memberships;
+DROP POLICY IF EXISTS "agency_memberships write admin" ON public.agency_memberships;
+
+CREATE POLICY "agency_memberships select own host" ON public.agency_memberships FOR SELECT USING (
+  host_id = public.current_profile_id()
+);
+CREATE POLICY "agency_memberships select tl" ON public.agency_memberships FOR SELECT USING (
+  team_leader_id = public.current_profile_id()
+  OR EXISTS (
+    SELECT 1 FROM public.profiles me
+    WHERE me.id = public.current_profile_id()
+      AND me.role IN ('team_leader', 'agency_manager')
+      AND me.id = agency_memberships.team_leader_id
+  )
+);
+CREATE POLICY "agency_memberships select admin" ON public.agency_memberships FOR SELECT USING (
+  public.is_admin_user()
+);
+-- Mutations via service-role APIs only
+CREATE POLICY "agency_memberships write admin" ON public.agency_memberships FOR ALL USING (
+  public.is_admin_user()
+) WITH CHECK (public.is_admin_user());
+
+COMMENT ON TABLE public.agency_memberships IS
+  'Formal TL↔host membership with start/end audit. Active row has end_date NULL. profiles.team_leader_id is the denormalized current pointer.';
+
+-- ============================================================================
 -- 14. USER DAILY REWARDS & ACTIVITY QUESTS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.user_daily_rewards (

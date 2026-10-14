@@ -66,10 +66,10 @@ Copy names into **`.env.local`** and into **Vercel → Settings → Environment 
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Publishable key (`sb_publishable_…`) for browser + RLS |
 | `SUPABASE_SECRET_KEY` | **No** | Secret key (`sb_secret_…`) for server admin client |
 | `DATABASE_URL` | **No** | Optional Transaction pooler `:6543` for raw SQL |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | **No** | Preferred Redis REST pair |
-| `KV_REST_API_URL` + `KV_REST_API_TOKEN` | **No** | Alternate Redis REST pair (Vercel KV / Upstash) |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | **No** | Preferred Redis REST pair (must be non-empty HTTPS URL + token) |
+| `KV_REST_API_URL` + `KV_REST_API_TOKEN` | **No** | Alternate Redis REST pair (Vercel KV / Upstash). Must resolve in DNS — a deleted Upstash DB causes `fetch failed` / `ENOTFOUND` |
 | `KV_REST_API_READ_ONLY_TOKEN` | — | **Not enough** for heartbeats (no writes) |
-| `KV_URL` / `REDIS_URL` as `rediss://` | — | TCP only; REST client ignores them |
+| `KV_URL` / `REDIS_URL` as `rediss://` | — | TCP only; REST client ignores them. Empty `REDIS_URL=""` does nothing; do not use it as a substitute for REST vars |
 | `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | **No** (URL may be returned to client after auth) | Token minting |
 | `R2_*` | **No** | Presigned uploads |
 | `SMTP_*` / `RESEND_API_KEY` | **No** | OTP / email |

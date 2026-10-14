@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { flushCallLedger } from '../../../../lib/callLedger';
 import { broadcastAdminSignal, deleteLivekitRoom } from '../../../../lib/handlers/adminCallSignals';
 import { deleteCallState, setPresence } from '../../../../lib/redis';
 import { updateCallLogs } from '../../../../lib/handlers/callLogsDb';
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest) {
     if (callRow) {
       callerId = String(callRow.caller_id || '');
       receiverId = String(callRow.receiver_id || '');
+      // Flush buffered billing before marking terminated
+      try {
+        await flushCallLedger(client, callId);
+      } catch (e: any) {
+        console.warn('[next /api/admin/terminate-call] ledger flush:', e?.message);
+      }
       const endedAt = new Date().toISOString();
       await updateCallLogs(
         client,

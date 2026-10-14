@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import { ensureActiveAgencyMembership, listActiveHostIdsForLeader } from '../agencyMemberships';
 import type { AuthOk } from '../nextAuth';
 import type { ServerRuntime } from '../serverRuntime';
 import {
@@ -71,12 +72,28 @@ export async function handleTeamleaderCreators(
     const listAllMode = allMode || (isAdmin && !url.searchParams.get('leaderId'));
     const allUsers = ctx.getFormattedUsers();
 
+    // Formal agency_memberships (active) ∪ legacy team_leader_id / created_by_id
+    let membershipHostIds = new Set<string>();
+    if (!listAllMode && isSupabaseAdminConfigured()) {
+      try {
+        const admin = getSupabaseAdmin();
+        if (admin) {
+          const effectiveLeaderId = scopeLeaderId || String(leader.id || '');
+          const ids = await listActiveHostIdsForLeader(admin, effectiveLeaderId);
+          membershipHostIds = new Set(ids);
+        }
+      } catch {
+        /* fall back to profile pointers */
+      }
+    }
+
     const creators = allUsers.filter((u) => {
       if (!isFemaleHostProfile(u)) return false;
       if (u.role === 'team_leader' || u.role === 'agency_manager' || u.role === 'admin') return false;
       if (listAllMode) return true;
       const effectiveLeaderId = scopeLeaderId || String(leader.id || '');
       if (u.id === effectiveLeaderId) return false;
+      if (membershipHostIds.has(u.id)) return true;
       return ownsCreatorByLeaderId(effectiveLeaderId, u, leader.authId);
     });
 
@@ -87,6 +104,7 @@ export async function handleTeamleaderCreators(
       leaderId: scopeLeaderId || String(leader.id || ''),
       agencyName: leader.agencyName,
       allMode: listAllMode,
+      membershipScoped: membershipHostIds.size > 0,
       runtime: 'next-native',
     });
   } catch (e: any) {
@@ -105,10 +123,24 @@ export async function handleTeamleaderStats(
     const { scopeLeaderId, allMode } = resolveTeamLeaderScope(req, leader);
     const allUsers = ctx.getFormattedUsers();
 
+    let membershipHostIds = new Set<string>();
+    if (!allMode && isSupabaseAdminConfigured()) {
+      try {
+        const admin = getSupabaseAdmin();
+        if (admin) {
+          const ids = await listActiveHostIdsForLeader(admin, scopeLeaderId || String(leader.id || ''));
+          membershipHostIds = new Set(ids);
+        }
+      } catch {
+        /* fall back */
+      }
+    }
+
     const managedCreators = allUsers.filter((u) => {
       if (!isFemaleHostProfile(u)) return false;
       if (u.role === 'team_leader' || u.role === 'agency_manager' || u.role === 'admin') return false;
       if (allMode) return true;
+      if (membershipHostIds.has(u.id)) return true;
       return ownsCreatorByLeaderId(scopeLeaderId, u, leader.authId);
     });
     const managedIds = new Set(managedCreators.map((c) => c.id));
@@ -416,6 +448,21 @@ export async function handleTeamleaderCreateCreator(
         normalizedCreator.id = pwRes.authUserId;
       }
       ctx.serverUsers.set(normalizedCreator.id, normalizedCreator);
+
+      // Formal membership audit row (active, end_date null)
+      try {
+        const admin = getSupabaseAdmin();
+        if (admin) {
+          await ensureActiveAgencyMembership(
+            admin,
+            normalizedCreator.id,
+            leaderId,
+            leaderId
+          );
+        }
+      } catch (memErr: any) {
+        console.warn('[teamleader/create-creator] agency_memberships:', memErr?.message);
+      }
     }
 
     ctx.broadcastAll({
