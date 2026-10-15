@@ -15,6 +15,7 @@ import {
   DiscoveryCardWidgetConfig,
   DiscoveryCardWidgetId,
   groupWidgetsBySlot,
+  buildDiscoveryScrimStyle,
   parseDiscoveryCardLayout,
   splitSlotIntoLines,
   widgetBoxAlignClasses,
@@ -341,6 +342,8 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   const footerRight = renderSlotBlock('footerRight', 'end');
   const hasFooter = Boolean(footerLeft || footerCenter || footerRight);
 
+  const scrimStyle = buildDiscoveryScrimStyle(layout);
+
   return (
     <MediaCard
       className={className}
@@ -352,6 +355,8 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
       showPhoto={layout.showPhoto}
       objectFit={layout.photoFit}
       objectPosition={layout.photoPosition}
+      scrimEnabled={layout.scrimEnabled}
+      scrimStyle={scrimStyle}
       onClick={previewMode ? undefined : () => onOpenProfile(user)}
       statusSlot={
         hasTop ? (

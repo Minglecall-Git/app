@@ -158,6 +158,11 @@ export interface DiscoveryCardViewportLayout {
   cardAspect: DiscoveryAspectMobile | DiscoveryAspectDesktop;
 }
 
+/** Bottom dark overlay (scrim) over the card photo — shared across viewports. */
+export const SCRIM_SIZE_BOUNDS = { min: 30, max: 100, default: 70 } as const;
+export const SCRIM_STRENGTH_BOUNDS = { min: 0, max: 100, default: 85 } as const;
+export const DEFAULT_SCRIM_COLOR = '#000000';
+
 export interface DiscoveryCardLayout {
   version: 2;
   mobile: DiscoveryCardViewportLayout;
@@ -168,6 +173,14 @@ export interface DiscoveryCardLayout {
   photoSource: DiscoveryPhotoSource;
   photoFit: DiscoveryPhotoFit;
   photoPosition: DiscoveryPhotoPosition;
+  /** Bottom radial fade over the photo (shared) */
+  scrimEnabled: boolean;
+  /** Hex color for the fade, e.g. #000000 */
+  scrimColor: string;
+  /** How far the fade reaches from bottom toward top (percent of card height) */
+  scrimSizePercent: number;
+  /** Opacity at the bottom edge (0–100); maps former from-black/85 */
+  scrimStrengthPercent: number;
 }
 
 export const SLOT_LABELS: Record<DiscoveryCardSlotId, string> = {
@@ -251,6 +264,59 @@ function coercePhotoPosition(v: unknown): DiscoveryPhotoPosition {
   return v === 'top' || v === 'bottom' || v === 'center' ? v : 'center';
 }
 
+/** Normalize #RGB / #RRGGBB; invalid → default black. */
+export function coerceScrimColor(v: unknown): string {
+  const raw = String(v || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+    const r = raw[1];
+    const g = raw[2];
+    const b = raw[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return DEFAULT_SCRIM_COLOR;
+}
+
+function hexToRgba(hex: string, alpha01: number): string {
+  const h = coerceScrimColor(hex).slice(1);
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const a = Math.min(1, Math.max(0, alpha01));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+/**
+ * CSS for the bottom-anchored radial scrim. Matches former Tailwind
+ * from-black/85 via mid fade when defaults are used.
+ */
+export function buildDiscoveryScrimStyle(
+  layout: Pick<
+    DiscoveryCardLayout,
+    'scrimEnabled' | 'scrimColor' | 'scrimSizePercent' | 'scrimStrengthPercent'
+  >
+): { backgroundImage: string } | null {
+  if (!layout.scrimEnabled) return null;
+  const size = clampInt(
+    layout.scrimSizePercent,
+    SCRIM_SIZE_BOUNDS.min,
+    SCRIM_SIZE_BOUNDS.max,
+    SCRIM_SIZE_BOUNDS.default
+  );
+  const strength = clampInt(
+    layout.scrimStrengthPercent,
+    SCRIM_STRENGTH_BOUNDS.min,
+    SCRIM_STRENGTH_BOUNDS.max,
+    SCRIM_STRENGTH_BOUNDS.default
+  );
+  const color = coerceScrimColor(layout.scrimColor);
+  const bottom = hexToRgba(color, strength / 100);
+  const mid = hexToRgba(color, (strength / 100) * 0.3);
+  return {
+    backgroundImage: `radial-gradient(ellipse 140% ${size}% at 50% 100%, ${bottom} 0%, ${mid} 45%, transparent 72%)`,
+  };
+}
+
 function coerceHAlign(v: unknown, fallback: DiscoveryHAlign): DiscoveryHAlign {
   return v === 'left' || v === 'right' ? v : fallback;
 }
@@ -291,6 +357,10 @@ export const DEFAULT_DISCOVERY_CARD_LAYOUT: DiscoveryCardLayout = {
   photoSource: 'avatarThenGallery',
   photoFit: 'cover',
   photoPosition: 'center',
+  scrimEnabled: true,
+  scrimColor: DEFAULT_SCRIM_COLOR,
+  scrimSizePercent: SCRIM_SIZE_BOUNDS.default,
+  scrimStrengthPercent: SCRIM_STRENGTH_BOUNDS.default,
 };
 
 /** Split ordered widgets into lines using nextLine flags. */
@@ -534,6 +604,20 @@ export function parseDiscoveryCardLayout(raw: unknown): DiscoveryCardLayout {
     photoSource: coercePhotoSource(obj.photoSource),
     photoFit: coercePhotoFit(obj.photoFit),
     photoPosition: coercePhotoPosition(obj.photoPosition),
+    scrimEnabled: obj.scrimEnabled === undefined ? true : Boolean(obj.scrimEnabled),
+    scrimColor: coerceScrimColor(obj.scrimColor),
+    scrimSizePercent: clampInt(
+      obj.scrimSizePercent,
+      SCRIM_SIZE_BOUNDS.min,
+      SCRIM_SIZE_BOUNDS.max,
+      SCRIM_SIZE_BOUNDS.default
+    ),
+    scrimStrengthPercent: clampInt(
+      obj.scrimStrengthPercent,
+      SCRIM_STRENGTH_BOUNDS.min,
+      SCRIM_STRENGTH_BOUNDS.max,
+      SCRIM_STRENGTH_BOUNDS.default
+    ),
   };
 }
 

@@ -17,6 +17,14 @@ export interface MediaCardProps extends React.HTMLAttributes<HTMLDivElement> {
   showPhoto?: boolean;
   objectFit?: 'cover' | 'contain';
   objectPosition?: 'center' | 'top' | 'bottom';
+  /**
+   * Bottom dark overlay style from discovery card layout.
+   * null/undefined with scrimEnabled false → no overlay;
+   * undefined alone → legacy default black fade.
+   */
+  scrimStyle?: React.CSSProperties | null;
+  /** When false, hide the bottom overlay entirely. Default true. */
+  scrimEnabled?: boolean;
   statusSlot?: React.ReactNode;
   metadata?: React.ReactNode;
   footer?: React.ReactNode;
@@ -57,6 +65,8 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   showPhoto = true,
   objectFit = 'cover',
   objectPosition = 'center',
+  scrimStyle,
+  scrimEnabled = true,
   statusSlot,
   metadata,
   footer,
@@ -149,7 +159,18 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             aria-hidden
           />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/10 pointer-events-none" />
+        {scrimEnabled && scrimStyle ? (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={scrimStyle}
+            aria-hidden
+          />
+        ) : scrimEnabled && scrimStyle === undefined ? (
+          <div
+            className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/10 pointer-events-none"
+            aria-hidden
+          />
+        ) : null}
 
         {statusSlot ? (
           <div className="absolute top-2 left-2 right-2 z-10 flex items-start justify-between gap-2">

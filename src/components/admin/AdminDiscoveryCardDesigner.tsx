@@ -23,6 +23,8 @@ import {
   SIZE_BOUNDS,
   PAD_BOUNDS,
   WIDTH_BOUNDS,
+  SCRIM_SIZE_BOUNDS,
+  SCRIM_STRENGTH_BOUNDS,
   SLOT_LABELS,
   H_ALIGN_LABELS,
   BOX_ALIGN_H_LABELS,
@@ -32,6 +34,7 @@ import {
   DiscoveryBoxAlignV,
   WIDGET_ALLOWED_SLOTS,
   WIDGET_LABELS,
+  coerceScrimColor,
   discoveryCardLayoutBlocksSave,
   getDiscoveryCardConflicts,
   groupWidgetsBySlot,
@@ -673,6 +676,103 @@ export const AdminDiscoveryCardDesigner: React.FC = () => {
                   <option value="bottom">Bottom</option>
                 </select>
               </label>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 space-y-3">
+              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Bottom overlay (radial fade)
+              </h5>
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.scrimEnabled}
+                  onChange={(e) =>
+                    setDraft((prev) =>
+                      parseDiscoveryCardLayout({ ...prev, scrimEnabled: e.target.checked })
+                    )
+                  }
+                  className="accent-pink-500 w-4 h-4"
+                />
+                Show bottom overlay
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-semibold">Color</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      disabled={!draft.scrimEnabled}
+                      value={coerceScrimColor(draft.scrimColor)}
+                      onChange={(e) =>
+                        setDraft((prev) =>
+                          parseDiscoveryCardLayout({ ...prev, scrimColor: e.target.value })
+                        )
+                      }
+                      className="h-9 w-12 rounded border border-slate-700 bg-slate-900 cursor-pointer disabled:opacity-40"
+                    />
+                    <input
+                      type="text"
+                      disabled={!draft.scrimEnabled}
+                      value={draft.scrimColor}
+                      onChange={(e) =>
+                        setDraft((prev) =>
+                          parseDiscoveryCardLayout({ ...prev, scrimColor: e.target.value })
+                        )
+                      }
+                      placeholder="#000000"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 font-mono disabled:opacity-40"
+                    />
+                  </div>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-semibold">
+                    Overlay height {draft.scrimSizePercent}%
+                  </span>
+                  <input
+                    type="range"
+                    disabled={!draft.scrimEnabled}
+                    min={SCRIM_SIZE_BOUNDS.min}
+                    max={SCRIM_SIZE_BOUNDS.max}
+                    value={draft.scrimSizePercent}
+                    onChange={(e) =>
+                      setDraft((prev) =>
+                        parseDiscoveryCardLayout({
+                          ...prev,
+                          scrimSizePercent: Number(e.target.value),
+                        })
+                      )
+                    }
+                    className="w-full accent-pink-500 disabled:opacity-40"
+                  />
+                  <span className="text-[10px] text-slate-500">
+                    How far the fade reaches from bottom toward mid/top
+                  </span>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-slate-400 font-semibold">
+                    Opacity {draft.scrimStrengthPercent}%
+                  </span>
+                  <input
+                    type="range"
+                    disabled={!draft.scrimEnabled}
+                    min={SCRIM_STRENGTH_BOUNDS.min}
+                    max={SCRIM_STRENGTH_BOUNDS.max}
+                    value={draft.scrimStrengthPercent}
+                    onChange={(e) =>
+                      setDraft((prev) =>
+                        parseDiscoveryCardLayout({
+                          ...prev,
+                          scrimStrengthPercent: Number(e.target.value),
+                        })
+                      )
+                    }
+                    className="w-full accent-pink-500 disabled:opacity-40"
+                  />
+                  <span className="text-[10px] text-slate-500">
+                    Strength at the bottom edge (default 85)
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
