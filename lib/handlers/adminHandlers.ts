@@ -43,20 +43,33 @@ import {
   MODULE_PURGE_CATALOG,
   MODULE_PURGE_GROUPS,
 } from '../adminModulePurge';
-/** Read ALLOW_FACTORY_RESET from live .env (so edits apply without full restart) + process.env. */
+/**
+ * Read ALLOW_FACTORY_RESET so edits apply without full restart.
+ * Prefer `.env.local` (Next convention) over `.env`, then process.env.
+ * Previously only `.env` was read — a stale `false` there overrode `.env.local=true`.
+ */
 function getAllowFactoryResetRaw(): string {
-  try {
-    const envPath = path.resolve(process.cwd(), '.env');
-    if (fs.existsSync(envPath)) {
+  const readKey = (fileName: string): string | null => {
+    try {
+      const envPath = path.resolve(process.cwd(), fileName);
+      if (!fs.existsSync(envPath)) return null;
       const parsed = dotenv.parse(fs.readFileSync(envPath));
-      if (Object.prototype.hasOwnProperty.call(parsed, 'ALLOW_FACTORY_RESET')) {
-        const fromFile = String(parsed.ALLOW_FACTORY_RESET ?? '').trim();
-        process.env.ALLOW_FACTORY_RESET = fromFile;
-        return fromFile;
-      }
+      if (!Object.prototype.hasOwnProperty.call(parsed, 'ALLOW_FACTORY_RESET')) return null;
+      return String(parsed.ALLOW_FACTORY_RESET ?? '').trim();
+    } catch {
+      return null;
     }
-  } catch {
-    // fall through to process.env
+  };
+
+  const fromLocal = readKey('.env.local');
+  if (fromLocal !== null) {
+    process.env.ALLOW_FACTORY_RESET = fromLocal;
+    return fromLocal;
+  }
+  const fromEnv = readKey('.env');
+  if (fromEnv !== null) {
+    process.env.ALLOW_FACTORY_RESET = fromEnv;
+    return fromEnv;
   }
   return String(process.env.ALLOW_FACTORY_RESET ?? '').trim();
 }

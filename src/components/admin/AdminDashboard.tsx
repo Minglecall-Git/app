@@ -3477,7 +3477,9 @@ export const AdminDashboard: React.FC = () => {
       {activeSubTab === 'system-testing' && <AdminSystemTestingPanel />}
       {activeSubTab === 'k6-load' && canOffice('k6-load') && <AdminK6LoadTestingPanel />}
       {activeSubTab === 'data-purge' &&
-        (canOffice('data-purge') || canOffice('reset-data')) && <AdminModulePurgeDashboard />}
+        (officeRbac.isSuper || canOffice('data-purge') || canOffice('reset-data')) && (
+          <AdminModulePurgeDashboard />
+        )}
       {/* Email: OTP / transactional templates, policy, logs */}
       {activeSubTab === 'email' && <AdminEmailPanel />}
 
