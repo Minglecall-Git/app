@@ -15,6 +15,7 @@ import {
   DiscoveryCardWidgetConfig,
   DiscoveryCardWidgetId,
   groupWidgetsBySlot,
+  buildDiscoveryCallButtonBg,
   buildDiscoveryScrimStyle,
   parseDiscoveryCardLayout,
   splitSlotIntoLines,
@@ -242,11 +243,13 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
         );
 
       case 'callButton': {
+        const callStatus = isUserOnline ? 'online' : isUserBusy ? 'busy' : 'offline';
         const btnStyle: React.CSSProperties = {
           width: vp.callStyle === 'circle' ? vp.callButtonPx : undefined,
           height: vp.callButtonPx,
           minWidth: vp.callStyle === 'pill' ? vp.callButtonPx * 1.6 : vp.callButtonPx,
           borderRadius: vp.callStyle === 'circle' ? 9999 : 12,
+          backgroundColor: buildDiscoveryCallButtonBg(layout, callStatus),
         };
         return wrapPad(
           w,
@@ -258,12 +261,12 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             }}
             title={isUserBusy ? 'Busy' : 'Call'}
             aria-label={isUserBusy ? 'Busy' : 'Call'}
-            className={`flex items-center justify-center transition-all cursor-pointer px-2 ${
+            className={`flex items-center justify-center transition-all cursor-pointer px-2 text-white ${
               isUserOnline
-                ? 'bg-flirt text-white shadow-brand active:scale-95'
+                ? 'shadow-brand active:scale-95'
                 : isUserBusy
-                ? 'bg-amber-500 text-white shadow-md'
-                : 'bg-black/55 text-white/80 border border-white/25 backdrop-blur-md'
+                ? 'shadow-md'
+                : 'border border-white/25 backdrop-blur-md'
             }`}
             style={btnStyle}
           >

@@ -25,6 +25,7 @@ import {
   WIDTH_BOUNDS,
   SCRIM_SIZE_BOUNDS,
   SCRIM_STRENGTH_BOUNDS,
+  CALL_BUTTON_OFFLINE_OPACITY_BOUNDS,
   SLOT_LABELS,
   H_ALIGN_LABELS,
   BOX_ALIGN_H_LABELS,
@@ -34,7 +35,11 @@ import {
   DiscoveryBoxAlignV,
   WIDGET_ALLOWED_SLOTS,
   WIDGET_LABELS,
+  coerceHexColor,
   coerceScrimColor,
+  DEFAULT_CALL_BUTTON_ONLINE_COLOR,
+  DEFAULT_CALL_BUTTON_OFFLINE_COLOR,
+  DEFAULT_CALL_BUTTON_BUSY_COLOR,
   discoveryCardLayoutBlocksSave,
   getDiscoveryCardConflicts,
   groupWidgetsBySlot,
@@ -92,6 +97,7 @@ export const AdminDiscoveryCardDesigner: React.FC = () => {
     cloneLayout(systemSettings.discoveryCardLayout ?? DEFAULT_DISCOVERY_CARD_LAYOUT)
   );
   const [editorViewport, setEditorViewport] = useState<DiscoveryCardViewportId>('mobile');
+  const [previewPresence, setPreviewPresence] = useState<'online' | 'busy' | 'offline'>('online');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -774,6 +780,83 @@ export const AdminDiscoveryCardDesigner: React.FC = () => {
                 </label>
               </div>
             </div>
+
+            <div className="pt-2 border-t border-slate-800 space-y-3">
+              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Call button colors
+              </h5>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                {(
+                  [
+                    [
+                      'callButtonOnlineColor',
+                      'Online',
+                      DEFAULT_CALL_BUTTON_ONLINE_COLOR,
+                    ],
+                    [
+                      'callButtonOfflineColor',
+                      'Offline',
+                      DEFAULT_CALL_BUTTON_OFFLINE_COLOR,
+                    ],
+                    [
+                      'callButtonBusyColor',
+                      'Busy',
+                      DEFAULT_CALL_BUTTON_BUSY_COLOR,
+                    ],
+                  ] as const
+                ).map(([key, label, fallback]) => (
+                  <label key={key} className="space-y-1">
+                    <span className="text-slate-400 font-semibold">{label}</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={coerceHexColor(draft[key], fallback)}
+                        onChange={(e) =>
+                          setDraft((prev) =>
+                            parseDiscoveryCardLayout({ ...prev, [key]: e.target.value })
+                          )
+                        }
+                        className="h-9 w-12 rounded border border-slate-700 bg-slate-900 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={draft[key]}
+                        onChange={(e) =>
+                          setDraft((prev) =>
+                            parseDiscoveryCardLayout({ ...prev, [key]: e.target.value })
+                          )
+                        }
+                        placeholder={fallback}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 font-mono"
+                      />
+                    </div>
+                  </label>
+                ))}
+                <label className="space-y-1 sm:col-span-3">
+                  <span className="text-slate-400 font-semibold">
+                    Offline opacity {draft.callButtonOfflineOpacityPercent}%
+                  </span>
+                  <input
+                    type="range"
+                    min={CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.min}
+                    max={CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.max}
+                    value={draft.callButtonOfflineOpacityPercent}
+                    onChange={(e) =>
+                      setDraft((prev) =>
+                        parseDiscoveryCardLayout({
+                          ...prev,
+                          callButtonOfflineOpacityPercent: Number(e.target.value),
+                        })
+                      )
+                    }
+                    className="w-full accent-pink-500"
+                  />
+                  <span className="text-[10px] text-slate-500">
+                    Softens the offline button over the photo (former black/55)
+                  </span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -786,9 +869,25 @@ export const AdminDiscoveryCardDesigner: React.FC = () => {
             </span>
           </div>
           <div className="flex justify-center">{viewportToggle}</div>
+          <div className="flex justify-center gap-1">
+            {(['online', 'busy', 'offline'] as const).map((status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setPreviewPresence(status)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold capitalize ${
+                  previewPresence === status
+                    ? 'bg-pink-600 text-white'
+                    : 'bg-slate-800 text-slate-300 border border-slate-700'
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
           <div className="max-w-[220px] mx-auto">
             <DiscoveryCard
-              user={PREVIEW_USER}
+              user={{ ...PREVIEW_USER, onlineStatus: previewPresence }}
               layout={draft}
               onStartCall={() => undefined}
               onOpenProfile={() => undefined}
@@ -799,8 +898,8 @@ export const AdminDiscoveryCardDesigner: React.FC = () => {
             />
           </div>
           <p className="text-[10px] text-slate-500 text-center">
-            Preview uses a sample Online + Verified host. Save applies both Mobile and Desktop to
-            Discovery.
+            Preview uses a sample Verified host. Toggle presence to check call button colors. Save
+            applies both Mobile and Desktop to Discovery.
           </p>
           <div className="flex flex-col gap-2 pt-1 border-t border-slate-800">
             <button

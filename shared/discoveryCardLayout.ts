@@ -163,6 +163,13 @@ export const SCRIM_SIZE_BOUNDS = { min: 30, max: 100, default: 70 } as const;
 export const SCRIM_STRENGTH_BOUNDS = { min: 0, max: 100, default: 85 } as const;
 export const DEFAULT_SCRIM_COLOR = '#000000';
 
+/** Call button fill colors (shared) — match former Tailwind defaults. */
+export const DEFAULT_CALL_BUTTON_ONLINE_COLOR = '#ff3366';
+export const DEFAULT_CALL_BUTTON_OFFLINE_COLOR = '#000000';
+export const DEFAULT_CALL_BUTTON_BUSY_COLOR = '#f59e0b';
+/** Offline button opacity (0–100); former bg-black/55 */
+export const CALL_BUTTON_OFFLINE_OPACITY_BOUNDS = { min: 20, max: 100, default: 55 } as const;
+
 export interface DiscoveryCardLayout {
   version: 2;
   mobile: DiscoveryCardViewportLayout;
@@ -181,6 +188,14 @@ export interface DiscoveryCardLayout {
   scrimSizePercent: number;
   /** Opacity at the bottom edge (0–100); maps former from-black/85 */
   scrimStrengthPercent: number;
+  /** Call button background when host is online */
+  callButtonOnlineColor: string;
+  /** Call button background when host is offline */
+  callButtonOfflineColor: string;
+  /** Call button background when host is busy / in call */
+  callButtonBusyColor: string;
+  /** Offline call button opacity (0–100) */
+  callButtonOfflineOpacityPercent: number;
 }
 
 export const SLOT_LABELS: Record<DiscoveryCardSlotId, string> = {
@@ -264,8 +279,8 @@ function coercePhotoPosition(v: unknown): DiscoveryPhotoPosition {
   return v === 'top' || v === 'bottom' || v === 'center' ? v : 'center';
 }
 
-/** Normalize #RGB / #RRGGBB; invalid → default black. */
-export function coerceScrimColor(v: unknown): string {
+/** Normalize #RGB / #RRGGBB; invalid → fallback. */
+export function coerceHexColor(v: unknown, fallback: string = DEFAULT_SCRIM_COLOR): string {
   const raw = String(v || '').trim();
   if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toLowerCase();
   if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
@@ -274,16 +289,54 @@ export function coerceScrimColor(v: unknown): string {
     const b = raw[3];
     return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
   }
+  const fb = String(fallback || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(fb)) return fb.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(fb)) {
+    return `#${fb[1]}${fb[1]}${fb[2]}${fb[2]}${fb[3]}${fb[3]}`.toLowerCase();
+  }
   return DEFAULT_SCRIM_COLOR;
 }
 
-function hexToRgba(hex: string, alpha01: number): string {
-  const h = coerceScrimColor(hex).slice(1);
+export function coerceScrimColor(v: unknown): string {
+  return coerceHexColor(v, DEFAULT_SCRIM_COLOR);
+}
+
+export function hexToRgba(hex: string, alpha01: number): string {
+  const h = coerceHexColor(hex).slice(1);
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
   const a = Math.min(1, Math.max(0, alpha01));
   return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+/** Background style for the discovery call button by presence. */
+export function buildDiscoveryCallButtonBg(
+  layout: Pick<
+    DiscoveryCardLayout,
+    | 'callButtonOnlineColor'
+    | 'callButtonOfflineColor'
+    | 'callButtonBusyColor'
+    | 'callButtonOfflineOpacityPercent'
+  >,
+  status: 'online' | 'busy' | 'offline'
+): string {
+  if (status === 'online') {
+    return coerceHexColor(layout.callButtonOnlineColor, DEFAULT_CALL_BUTTON_ONLINE_COLOR);
+  }
+  if (status === 'busy') {
+    return coerceHexColor(layout.callButtonBusyColor, DEFAULT_CALL_BUTTON_BUSY_COLOR);
+  }
+  const opacity = clampInt(
+    layout.callButtonOfflineOpacityPercent,
+    CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.min,
+    CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.max,
+    CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.default
+  );
+  return hexToRgba(
+    coerceHexColor(layout.callButtonOfflineColor, DEFAULT_CALL_BUTTON_OFFLINE_COLOR),
+    opacity / 100
+  );
 }
 
 /**
@@ -361,6 +414,10 @@ export const DEFAULT_DISCOVERY_CARD_LAYOUT: DiscoveryCardLayout = {
   scrimColor: DEFAULT_SCRIM_COLOR,
   scrimSizePercent: SCRIM_SIZE_BOUNDS.default,
   scrimStrengthPercent: SCRIM_STRENGTH_BOUNDS.default,
+  callButtonOnlineColor: DEFAULT_CALL_BUTTON_ONLINE_COLOR,
+  callButtonOfflineColor: DEFAULT_CALL_BUTTON_OFFLINE_COLOR,
+  callButtonBusyColor: DEFAULT_CALL_BUTTON_BUSY_COLOR,
+  callButtonOfflineOpacityPercent: CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.default,
 };
 
 /** Split ordered widgets into lines using nextLine flags. */
@@ -605,7 +662,7 @@ export function parseDiscoveryCardLayout(raw: unknown): DiscoveryCardLayout {
     photoFit: coercePhotoFit(obj.photoFit),
     photoPosition: coercePhotoPosition(obj.photoPosition),
     scrimEnabled: obj.scrimEnabled === undefined ? true : Boolean(obj.scrimEnabled),
-    scrimColor: coerceScrimColor(obj.scrimColor),
+    scrimColor: coerceHexColor(obj.scrimColor, DEFAULT_SCRIM_COLOR),
     scrimSizePercent: clampInt(
       obj.scrimSizePercent,
       SCRIM_SIZE_BOUNDS.min,
@@ -617,6 +674,21 @@ export function parseDiscoveryCardLayout(raw: unknown): DiscoveryCardLayout {
       SCRIM_STRENGTH_BOUNDS.min,
       SCRIM_STRENGTH_BOUNDS.max,
       SCRIM_STRENGTH_BOUNDS.default
+    ),
+    callButtonOnlineColor: coerceHexColor(
+      obj.callButtonOnlineColor,
+      DEFAULT_CALL_BUTTON_ONLINE_COLOR
+    ),
+    callButtonOfflineColor: coerceHexColor(
+      obj.callButtonOfflineColor,
+      DEFAULT_CALL_BUTTON_OFFLINE_COLOR
+    ),
+    callButtonBusyColor: coerceHexColor(obj.callButtonBusyColor, DEFAULT_CALL_BUTTON_BUSY_COLOR),
+    callButtonOfflineOpacityPercent: clampInt(
+      obj.callButtonOfflineOpacityPercent,
+      CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.min,
+      CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.max,
+      CALL_BUTTON_OFFLINE_OPACITY_BOUNDS.default
     ),
   };
 }
