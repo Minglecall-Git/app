@@ -100,6 +100,7 @@ import { AdminK6LoadTestingPanel } from './AdminK6LoadTestingPanel';
 import { AdminToastsMessagesCms } from './AdminToastsMessagesCms';
 import { AdminSeoBrandingCms } from './AdminSeoBrandingCms';
 import { ResetMockDataModal } from './ResetMockDataModal';
+import { AdminModulePurgeDashboard } from './AdminModulePurgeDashboard';
 import { AdminTaxonomyManager } from './AdminTaxonomyManager';
 import { AdminCreatorTargetConfig } from './AdminCreatorTargetConfig';
 import { AdminFinancialModule } from './finance/AdminFinancialModule';
@@ -3475,6 +3476,8 @@ export const AdminDashboard: React.FC = () => {
       {activeSubTab === 'api-health' && <AdminApiHealthPanel />}
       {activeSubTab === 'system-testing' && <AdminSystemTestingPanel />}
       {activeSubTab === 'k6-load' && canOffice('k6-load') && <AdminK6LoadTestingPanel />}
+      {activeSubTab === 'data-purge' &&
+        (canOffice('data-purge') || canOffice('reset-data')) && <AdminModulePurgeDashboard />}
       {/* Email: OTP / transactional templates, policy, logs */}
       {activeSubTab === 'email' && <AdminEmailPanel />}
 

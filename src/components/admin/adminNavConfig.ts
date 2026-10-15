@@ -27,7 +27,8 @@ export type AdminSubTabKey =
   | 'cms-toasts'
   | 'cms-seo'
   | 'office-rbac'
-  | 'cron-schedule';
+  | 'cron-schedule'
+  | 'data-purge';
 
 /** Non-tab sidebar actions (Setup Wizard / Reset Data). */
 export type AdminNavActionKey = 'setup-wizard' | 'reset-data';
@@ -339,6 +340,14 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         buttonId: 'admin-open-reset-mock-modal-btn',
         title: 'Open Destructive Data Reset Manager (ALLOW_FACTORY_RESET required)',
       },
+      {
+        id: 'data-purge',
+        label: 'Module Purge',
+        icon: 'Trash2',
+        kind: 'tab',
+        title:
+          'Granular per-module delete (messages, matches, finance/settlements, R2 media). Requires ALLOW_FACTORY_RESET.',
+      },
     ],
   },
 ];
@@ -365,6 +374,7 @@ export function filterAdminNavGroups(
   const granted = new Set(opts.permissions || []);
   const can = (key: string) => {
     if (granted.has(key)) return true;
+    if (key === 'data-purge' && granted.has('reset-data')) return true;
     if (key.includes(':')) {
       const parent = key.split(':')[0];
       return granted.has(parent);

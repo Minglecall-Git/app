@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     rating_score NUMERIC DEFAULT 5.0,
     total_reviews_count INT DEFAULT 0,
     acceptance_rate_percent NUMERIC DEFAULT 100,
+    -- Public display label (e.g. '98% instant'); not acceptance_rate_percent / creator_metrics.response_health_score
+    response_rate TEXT,
     is_banned BOOLEAN NOT NULL DEFAULT false,
     ban_reason TEXT,
     banned_until TIMESTAMPTZ,
@@ -109,6 +111,9 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS commission_percent NUMERIC 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS team_leader_note TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_password_set BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS response_rate TEXT;
+COMMENT ON COLUMN public.profiles.response_rate IS
+  'Public display label for response speed (e.g. ''98% instant''). Distinct from acceptance_rate_percent and creator_metrics.response_health_score.';
 -- Single-device login: only the device holding this id may stay authenticated
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS active_session_id TEXT;
 -- Clients must not self-assign session ids; only service-role (backend claim) may write
@@ -2746,16 +2751,70 @@ CREATE INDEX IF NOT EXISTS idx_creator_period_snapshots_agency
 COMMENT ON TABLE public.creator_period_snapshots IS
   'Point-in-time creator metrics frozen at settlement period close. Live creator_metrics may reset after snapshot.';
 
--- Enforce append-only / amount immutability at the database layer
+-- Enforce append-only / amount immutability at the database layer.
+-- Factory / module purge may set app.allow_finance_purge=1 (transaction-local) to allow DELETE only.
 CREATE OR REPLACE FUNCTION public.finance_reject_mutation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF coalesce(current_setting('app.allow_finance_purge', true), '') = '1' THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
   RAISE EXCEPTION '% is append-only / immutable; use REVERSAL or settlement_events instead of %',
     TG_TABLE_NAME, TG_OP;
 END;
 $$;
+
+-- Atomic finance / salary purge for admin factory-reset & module dashboard (service_role only).
+CREATE OR REPLACE FUNCTION public.admin_purge_finance_module()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  counts jsonb := '{}'::jsonb;
+  n bigint;
+BEGIN
+  PERFORM set_config('app.allow_finance_purge', '1', true);
+
+  DELETE FROM public.settlement_events;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('settlement_events', n);
+
+  DELETE FROM public.settlement_line_items;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('settlement_line_items', n);
+
+  DELETE FROM public.settlement_batches;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('settlement_batches', n);
+
+  DELETE FROM public.creator_period_snapshots;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('creator_period_snapshots', n);
+
+  DELETE FROM public.financial_ledger;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('financial_ledger', n);
+
+  DELETE FROM public.settlement_periods;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('settlement_periods', n);
+
+  RETURN jsonb_build_object('success', true, 'deleted', counts);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_purge_finance_module() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_purge_finance_module() TO service_role;
+
+COMMENT ON FUNCTION public.admin_purge_finance_module() IS
+  'Admin-only (service_role) atomic wipe of settlement/salary/financial_ledger tables. Bypasses immutability triggers via app.allow_finance_purge.';
 
 DROP TRIGGER IF EXISTS trg_financial_ledger_no_update ON public.financial_ledger;
 CREATE TRIGGER trg_financial_ledger_no_update
@@ -4840,3 +4899,41 @@ CROSS JOIN (
 ) AS p(permission_key)
 WHERE r.key = 'manager'
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- ADMIN DATA PURGE AUDIT LOG (factory reset + module purge dashboard)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.admin_data_purge_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_user_id TEXT REFERENCES public.profiles(id) ON DELETE SET NULL,
+    module_id TEXT NOT NULL,
+    confirm_phrase TEXT NOT NULL,
+    tables_cleared TEXT[] NOT NULL DEFAULT '{}',
+    r2_deleted_count INT NOT NULL DEFAULT 0,
+    success BOOLEAN NOT NULL DEFAULT true,
+    error_message TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_data_purge_log_created
+  ON public.admin_data_purge_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_data_purge_log_module
+  ON public.admin_data_purge_log (module_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_data_purge_log_actor
+  ON public.admin_data_purge_log (actor_user_id, created_at DESC);
+
+ALTER TABLE public.admin_data_purge_log ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "admin_data_purge_log select admin" ON public.admin_data_purge_log;
+DROP POLICY IF EXISTS "admin_data_purge_log no client write" ON public.admin_data_purge_log;
+
+CREATE POLICY "admin_data_purge_log select admin" ON public.admin_data_purge_log
+  FOR SELECT USING (public.is_admin_user());
+CREATE POLICY "admin_data_purge_log no client write" ON public.admin_data_purge_log
+  FOR ALL TO anon, authenticated
+  USING (false)
+  WITH CHECK (false);
+
+COMMENT ON TABLE public.admin_data_purge_log IS
+  'Audit trail for admin factory-reset and per-module purge actions. Inserts via service_role only.';

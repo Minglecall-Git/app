@@ -805,6 +805,10 @@ export interface ResetDataOptions {
   payoutRequests?: boolean;
   coinPackages?: boolean;
   virtualGiftsCatalog?: boolean;
+  /** Settlement batches, financial_ledger, salary line items (atomic RPC). */
+  financeSettlements?: boolean;
+  /** Coin purchase / funding records. */
+  coinPurchases?: boolean;
 
   // 5. Chats & Social
   chatMessages?: boolean;
@@ -815,9 +819,14 @@ export interface ResetDataOptions {
 
   // 6. Matches & Activity Calls
   callLogs?: boolean;
+  /** Explicit matches/swipes wipe (also implied by callLogs / chatMessages / clearAllUsers). */
+  matchesSwipes?: boolean;
   liveHostsPool?: boolean;
   surveillanceLogs?: boolean;
   quickMatchQueues?: boolean;
+
+  /** Formal agency_memberships audit table. */
+  agencyMemberships?: boolean;
 
   // 7. Feed & Community
   feedPosts?: boolean;

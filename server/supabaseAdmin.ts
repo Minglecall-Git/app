@@ -439,6 +439,7 @@ export async function upsertProfileAdmin(profile: any): Promise<{ success: boole
       kyc_status: profile.kycStatus || 'unsubmitted',
       online_status: profile.onlineStatus || 'online',
       role: profile.role || 'male_user',
+      response_rate: profile.responseRate || profile.response_rate || null,
       coin_balance: Number(profile.coinBalance) || 0,
       hourly_coin_rate: Number(profile.hourlyCoinRate) || 0,
       earnings_coins: Number(profile.earningsCoins) || 0,
@@ -1314,6 +1315,14 @@ export async function granularResetSupabaseAdmin(options: {
   virtualGiftsCatalog?: boolean;
   /** Explicit wallet_ledger wipe; also implied by callLogs / balance reset / clearAllUsers. */
   walletLedger?: boolean;
+  /** Wipe settlement batches / financial_ledger (immutability bypass RPC). Implied by clearAllUsers. */
+  financeSettlements?: boolean;
+  /** Wipe agency_memberships audit rows. */
+  agencyMemberships?: boolean;
+  /** Wipe coin_purchases funding records. */
+  coinPurchases?: boolean;
+  /** Wipe matches/swipes independently of call logs. */
+  matches?: boolean;
   resetBalances?: {
     callerCoins?: boolean;
     creatorEarnings?: boolean;
@@ -1353,14 +1362,25 @@ export async function granularResetSupabaseAdmin(options: {
       Boolean(options.resetBalances?.callerCoins) ||
       Boolean(options.resetBalances?.creatorEarnings);
 
-    // Optional: purge Cloudflare R2 uploads before DB deletion
-    if (options.purgeR2MediaStorage) {
+    // Optional / implied: purge Cloudflare R2 uploads before DB deletion.
+    // clearAllUsers always purges user-media prefixes so profile deletes do not orphan R2 objects.
+    const shouldPurgeR2 =
+      Boolean(options.purgeR2MediaStorage) ||
+      Boolean(options.purgeAllR2Uploads) ||
+      Boolean(options.clearAllUsers);
+    if (shouldPurgeR2) {
       clearLocalMediaCache();
+      const purgeAll = Boolean(options.purgeAllR2Uploads);
       const purgeRes = await purgeR2MediaUploads({
-        purgeAllUploads: Boolean(options.purgeAllR2Uploads),
-        prefixes: Boolean(options.purgeAllR2Uploads) ? undefined : DEFAULT_R2_PURGE_PREFIXES,
+        purgeAllUploads: purgeAll,
+        prefixes: purgeAll ? undefined : DEFAULT_R2_PURGE_PREFIXES,
       });
       clearedTables.push(`r2_media_uploads (${purgeRes.deletedCount} objects)`);
+      if (!options.purgeR2MediaStorage && options.clearAllUsers) {
+        warnings.push(
+          `R2 user-media prefixes auto-purged during clearAllUsers (${purgeRes.deletedCount} objects).`
+        );
+      }
     }
 
     // Virtual Gifts Catalog purge:
@@ -1404,10 +1424,42 @@ export async function granularResetSupabaseAdmin(options: {
       recordDelete('message_conversation_clears', clearsErr);
     }
 
+    // 1a. Finance settlements / salary (DELETE-blocked by triggers unless RPC bypass).
+    // Must run before profile wipe — settlement_batches.payee_user_id is ON DELETE RESTRICT.
+    if (options.financeSettlements || options.clearAllUsers) {
+      try {
+        const { data, error } = await (client as any).rpc('admin_purge_finance_module');
+        if (error) {
+          failedOps.push(`finance_settlements_rpc: ${error.message}`);
+          console.warn('[Supabase Admin Reset] finance purge RPC:', error.message);
+        } else {
+          const deleted = (data as any)?.deleted || {};
+          for (const [k, v] of Object.entries(deleted)) {
+            clearedTables.push(`${k} (${v})`);
+          }
+          if (!Object.keys(deleted).length) clearedTables.push('finance_settlements');
+        }
+      } catch (err: any) {
+        failedOps.push(`finance_settlements_rpc: ${err?.message || err}`);
+      }
+    }
+
+    // 1a2. Coin purchases (FK → wallet_ledger)
+    if (options.coinPurchases || options.clearAllUsers || purgeWalletLedger) {
+      const { error } = await deleteAllRows('coin_purchases', 'id');
+      recordDelete('coin_purchases', error);
+    }
+
     // 1b. Wallet ledger (before call_logs / profiles)
     if (purgeWalletLedger) {
       const { error } = await deleteAllRows('wallet_ledger', 'id');
       recordDelete('wallet_ledger', error);
+    }
+
+    // 1c. Agency memberships (also CASCADE on profile delete; explicit for targeted reset)
+    if (options.agencyMemberships || options.clearAllUsers) {
+      const { error } = await deleteAllRows('agency_memberships', 'id');
+      recordDelete('agency_memberships', error);
     }
 
     // 2. Delete Call Logs Table
@@ -1417,7 +1469,12 @@ export async function granularResetSupabaseAdmin(options: {
     }
 
     // 3. Delete Matches Table
-    if (options.callLogs || options.chatMessages || options.clearAllUsers) {
+    if (
+      options.matches ||
+      options.callLogs ||
+      options.chatMessages ||
+      options.clearAllUsers
+    ) {
       const { error } = await deleteAllRows('matches', 'id');
       recordDelete('matches', error);
     }
@@ -1796,6 +1853,9 @@ export async function updateUserProfileAdmin(
     }
     if (updates.hourlyCoinRate !== undefined || updates.hourly_coin_rate !== undefined) {
       payload.hourly_coin_rate = Number(updates.hourlyCoinRate ?? updates.hourly_coin_rate);
+    }
+    if (updates.responseRate !== undefined || updates.response_rate !== undefined) {
+      payload.response_rate = updates.responseRate ?? updates.response_rate ?? null;
     }
     if (updates.earningsCoins !== undefined || updates.earnings_coins !== undefined) {
       payload.earnings_coins = Number(updates.earningsCoins ?? updates.earnings_coins);

@@ -1255,7 +1255,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       // Single-device gate: if another device claimed the session, sign out here.
-      // If this browser has no claimed id yet (upgrade / first visit), claim one.
+      // If this browser has no local id yet, ADOPT the DB id — never mint a new one on
+      // rehydrate (that raced with password login and self-kicked the admin session).
       try {
         const localSid = getStoredActiveSessionId();
         if (dbActiveSessionId && localSid && dbActiveSessionId !== localSid) {
@@ -1268,8 +1269,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           );
           return;
         }
-        if (!localSid) {
-          // Hydrate-only claim: do not revoke other refresh tokens here (login path does that).
+        if (!localSid && dbActiveSessionId) {
+          await claimExclusiveLoginSession({
+            accessToken: accessTokenRef.current,
+            knownSessionId: dbActiveSessionId,
+            revokeOthers: false,
+          });
+        } else if (!localSid && !dbActiveSessionId) {
           await claimExclusiveLoginSession({
             accessToken: accessTokenRef.current,
             revokeOthers: false,
@@ -2498,7 +2504,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 options.callLogs ||
                 options.customUsers
             ),
-            purgeR2MediaStorage: Boolean(options.profilesMedia || options.r2PurgeAllUploads),
+            financeSettlements: Boolean(
+              options.financeSettlements || options.customUsers || options.teamLeaderAgencies
+            ),
+            agencyMemberships: Boolean(
+              options.agencyMemberships || options.teamLeaderAgencies || options.customUsers
+            ),
+            coinPurchases: Boolean(
+              options.coinPurchases ||
+                options.walletLedger ||
+                options.userCoins ||
+                options.customUsers
+            ),
+            matches: Boolean(
+              options.matchesSwipes ||
+                options.callLogs ||
+                options.quickMatchQueues ||
+                options.chatMessages ||
+                options.customUsers
+            ),
+            purgeR2MediaStorage: Boolean(
+              options.profilesMedia || options.r2PurgeAllUploads || options.customUsers
+            ),
             purgeAllR2Uploads: Boolean(options.r2PurgeAllUploads),
             resetBalances: {
               callerCoins: Boolean(options.userCoins),
@@ -5150,6 +5177,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         (payload) => {
           if (shouldIgnoreSessionKick()) return;
           const nextId = (payload.new as { active_session_id?: string | null } | null)?.active_session_id;
+          // Ignore updates that do not change the session lease (online_status, etc.).
+          const prevId = (payload.old as { active_session_id?: string | null } | null)?.active_session_id;
+          if (
+            nextId != null &&
+            prevId != null &&
+            String(nextId).trim() === String(prevId).trim()
+          ) {
+            return;
+          }
           const mine = getStoredActiveSessionId();
           if (nextId && mine && String(nextId).trim() !== mine) {
             kickIfReplaced();

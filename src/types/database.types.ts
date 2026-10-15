@@ -60,6 +60,7 @@ export interface Database {
           rating_score: number;
           total_reviews_count: number;
           acceptance_rate_percent: number;
+          response_rate: string | null;
           is_banned: boolean;
           ban_reason: string | null;
           banned_until: string | null;

@@ -65,7 +65,16 @@ export function mapPublicProfileRow(p: any) {
     ratingScore: p.rating_score != null ? Number(p.rating_score) : undefined,
     totalReviewsCount: p.total_reviews_count != null ? Number(p.total_reviews_count) : undefined,
     totalCallsHosted: p.total_calls_hosted != null ? Number(p.total_calls_hosted) : undefined,
-    exactLocation: p.exact_location || undefined,
+    exactLocation:
+      p.exact_location ||
+      (p.latitude != null && p.longitude != null
+        ? {
+            latitude: Number(p.latitude),
+            longitude: Number(p.longitude),
+            city: p.location_city || undefined,
+            countryCode: p.country_code ? String(p.country_code).toUpperCase() : undefined,
+          }
+        : undefined),
     isUsingMockLocation: Boolean(p.is_using_mock_location),
     mockLocationCity: p.mock_location_city || undefined,
     mockLocationCountry: p.mock_location_country || undefined,
@@ -102,11 +111,11 @@ export const PUBLIC_PROFILE_SELECT = [
   'rating_score',
   'total_reviews_count',
   'total_calls_hosted',
-  'exact_location',
+  'latitude',
+  'longitude',
   'is_using_mock_location',
   'mock_location_city',
   'mock_location_country',
-  'mock_location_country_code',
   'created_at',
   'is_banned',
 ].join(', ');

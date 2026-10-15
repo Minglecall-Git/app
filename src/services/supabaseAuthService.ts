@@ -774,6 +774,15 @@ export async function signInWithEmailPassword(
 
       const data = await res.json();
       if (res.ok && data.success && data.user) {
+        // Persist exclusive session id BEFORE setSession — onAuthStateChange rehydrate
+        // races with setSession and must not mint a second active_session_id.
+        const serverSessionId =
+          typeof data.activeSessionId === 'string' ? data.activeSessionId.trim() : '';
+        if (serverSessionId) {
+          markSessionClaimGrace(12000);
+          setStoredActiveSessionId(serverSessionId);
+        }
+
         // Persist Auth tokens in the browser — required for refresh / rehydrate.
         if (data.session?.access_token && data.session?.refresh_token) {
           if (!isSupabaseConfigured()) {
@@ -800,11 +809,10 @@ export async function signInWithEmailPassword(
             };
           }
         }
-        // Server already claimed active_session_id on login — do not revoke refresh
-        // tokens here (signOut scope=others can race and clear the session we just set).
+        // Server already claimed active_session_id on login — adopt it only (no re-claim).
         const activeSessionId = await claimExclusiveLoginSession({
           accessToken: data.session?.access_token || null,
-          knownSessionId: typeof data.activeSessionId === 'string' ? data.activeSessionId : null,
+          knownSessionId: serverSessionId || null,
           revokeOthers: false,
         });
         return {
@@ -903,8 +911,19 @@ export async function signInWithEmailPassword(
           }
         }
 
+        // Prefer existing DB session id on fallback login to avoid self-kick races.
+        const existingSid =
+          (dbProfile as any)?.active_session_id != null
+            ? String((dbProfile as any).active_session_id).trim()
+            : '';
+        if (existingSid) {
+          markSessionClaimGrace(12000);
+          setStoredActiveSessionId(existingSid);
+        }
         const activeSessionId = await claimExclusiveLoginSession({
           accessToken: data.session?.access_token || null,
+          knownSessionId: existingSid || null,
+          revokeOthers: false,
         });
 
         return {

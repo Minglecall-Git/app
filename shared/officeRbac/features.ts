@@ -141,6 +141,12 @@ export const OFFICE_FEATURES: OfficeFeatureDef[] = [
   { key: 'cms-seo', label: 'SEO & branding', group: 'CMS', kind: 'tab' },
   { key: 'setup-wizard', label: 'Setup Wizard GUI', group: 'Actions', kind: 'action' },
   { key: 'reset-data', label: 'Reset Data', group: 'Actions', kind: 'action' },
+  {
+    key: 'data-purge',
+    label: 'Module Purge',
+    group: 'Actions',
+    kind: 'tab',
+  },
 ];
 
 export function allOfficePermissionKeys(): string[] {
@@ -164,6 +170,8 @@ export function hasOfficePermission(
   if (opts.isSuper) return true;
   const granted = new Set(opts.permissions || []);
   if (granted.has(featureKey)) return true;
+  // Module Purge shares the same destructive gate as Reset Data.
+  if (featureKey === 'data-purge' && granted.has('reset-data')) return true;
   // L2 key: allow if parent L1 granted
   if (featureKey.includes(':')) {
     const parent = featureKey.split(':')[0];

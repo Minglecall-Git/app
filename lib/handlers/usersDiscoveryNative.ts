@@ -114,9 +114,13 @@ export async function handleGetUsers(
     const { data, error } = await query;
     if (error) {
       console.error('[GET /api/users]', error.message);
+      const hint = String(error.message || '').slice(0, 180);
       return err(500, {
         success: false,
-        error: { message: 'Failed to load directory', code: 'DIRECTORY_FAILED' },
+        error: {
+          message: hint ? `Failed to load directory: ${hint}` : 'Failed to load directory',
+          code: 'DIRECTORY_FAILED',
+        },
       });
     }
 

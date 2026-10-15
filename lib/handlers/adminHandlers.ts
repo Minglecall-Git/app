@@ -37,6 +37,12 @@ import {
   DEFAULT_EMAIL_TEMPLATES,
   parseEmailTemplatesJson,
 } from '../../shared/emailTemplates';
+import {
+  executeModulePurge,
+  inventoryModulePurge,
+  MODULE_PURGE_CATALOG,
+  MODULE_PURGE_GROUPS,
+} from '../adminModulePurge';
 /** Read ALLOW_FACTORY_RESET from live .env (so edits apply without full restart) + process.env. */
 function getAllowFactoryResetRaw(): string {
   try {
@@ -232,6 +238,10 @@ async function admin_POST_granular_reset(ctx: ServerRuntime, auth: AuthOk, param
           blockedUsers: Boolean(options.blockedUsers),
           creatorGoals: Boolean(options.creatorGoals),
           walletLedger: Boolean(options.walletLedger),
+          financeSettlements: Boolean(options.financeSettlements),
+          agencyMemberships: Boolean(options.agencyMemberships),
+          coinPurchases: Boolean(options.coinPurchases),
+          matches: Boolean(options.matches),
           resetBalances: options.resetBalances,
         });
         if (!supabaseResult?.success) {
@@ -244,17 +254,107 @@ async function admin_POST_granular_reset(ctx: ServerRuntime, auth: AuthOk, param
         }
       }
 
+      const r2PurgeRequested = Boolean(
+        options.purgeR2MediaStorage || options.purgeAllR2Uploads || options.clearAllUsers
+      );
+      const r2Purged = Array.isArray(supabaseResult?.clearedTables)
+        ? supabaseResult.clearedTables.some((t: string) => String(t).startsWith('r2_media_uploads'))
+        : false;
+
       return ok({
         success: true,
         message: 'Server and database state reset successfully.',
         clearedTables: supabaseResult.clearedTables || [],
         warnings: supabaseResult.warnings || [],
+        r2PurgeRequested,
+        r2Purged,
       });
     } catch (e: any) {
       console.error('[API Reset] Error during granular reset:', e);
       return err(500, { success: false, error: e.message });
     }
   
+}
+
+async function admin_GET_module_purge_inventory(
+  _ctx: ServerRuntime,
+  _auth: AuthOk,
+  _params: Record<string, string>,
+  _body: Record<string, unknown>,
+  _headers: Record<string, string>
+): Promise<HandlerResult> {
+  const inv = await inventoryModulePurge();
+  if (!inv.success) {
+    return err(503, {
+      success: false,
+      error: { message: inv.error || 'Inventory failed', code: 'MODULE_PURGE_INVENTORY_FAILED' },
+    });
+  }
+  return ok({
+    success: true,
+    data: {
+      groups: MODULE_PURGE_GROUPS,
+      catalog: MODULE_PURGE_CATALOG.map((m) => ({
+        id: m.id,
+        label: m.label,
+        description: m.description,
+        group: m.group,
+        confirmPhrase: m.confirmPhrase,
+        financeRisk: Boolean(m.financeRisk),
+      })),
+      modules: inv.modules,
+      factoryResetAllowed: isFactoryResetAllowed(),
+    },
+  });
+}
+
+async function admin_POST_module_purge(
+  _ctx: ServerRuntime,
+  auth: AuthOk,
+  _params: Record<string, string>,
+  body: Record<string, unknown>,
+  _headers: Record<string, string>
+): Promise<HandlerResult> {
+  if (!isFactoryResetAllowed()) {
+    return refuseFactoryReset();
+  }
+
+  const moduleId = String(body.moduleId || '').trim();
+  const confirmPhrase = String(body.confirmPhrase || '').trim();
+  if (!moduleId) {
+    return err(400, {
+      success: false,
+      error: { message: 'moduleId is required', code: 'MODULE_ID_REQUIRED' },
+    });
+  }
+
+  const result = await executeModulePurge({
+    moduleId,
+    confirmPhrase,
+    actorUserId: String(auth.userId || ''),
+  });
+
+  if (!result.success) {
+    return err(400, {
+      success: false,
+      error: { message: result.error || 'Module purge failed', code: 'MODULE_PURGE_FAILED' },
+      data: {
+        moduleId: result.moduleId,
+        cleared: result.cleared,
+        r2DeletedCount: result.r2DeletedCount,
+      },
+    });
+  }
+
+  return ok({
+    success: true,
+    data: {
+      moduleId: result.moduleId,
+      cleared: result.cleared,
+      r2DeletedCount: result.r2DeletedCount,
+      message: `Purged module ${result.moduleId}`,
+    },
+  });
 }
 
 async function admin_POST_delete_user(ctx: ServerRuntime, auth: AuthOk, params: {  }, body: Record<string, unknown>, headers: Record<string, string>): Promise<HandlerResult> {
@@ -1134,6 +1234,14 @@ export async function dispatchAdminCore(
   if (method === 'POST') {
     const params = matchSegments(segments, ['granular-reset']);
     if (params) return admin_POST_granular_reset(ctx, auth, {  }, body, headers);
+  }
+  if (method === 'GET') {
+    const params = matchSegments(segments, ['module-purge']);
+    if (params) return admin_GET_module_purge_inventory(ctx, auth, {}, body, headers);
+  }
+  if (method === 'POST') {
+    const params = matchSegments(segments, ['module-purge']);
+    if (params) return admin_POST_module_purge(ctx, auth, {}, body, headers);
   }
   if (method === 'POST') {
     const params = matchSegments(segments, ['delete-user']);

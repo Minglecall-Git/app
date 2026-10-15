@@ -72,6 +72,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
     userCoins: false,
     creatorEarnings: false,
     walletLedger: false,
+    financeSettlements: false,
+    coinPurchases: false,
+    agencyMemberships: false,
+    matchesSwipes: true,
     payoutRequests: false,
     coinPackages: false,
     virtualGiftsCatalog: false,
@@ -164,7 +168,13 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
     return n;
   })();
 
-  const requiresTypedConfirm = Boolean(options.customUsers || options.adminAccount || options.r2PurgeAllUploads);
+  const requiresTypedConfirm = Boolean(
+    options.customUsers ||
+      options.adminAccount ||
+      options.r2PurgeAllUploads ||
+      options.financeSettlements ||
+      options.coinPurchases
+  );
   const deleteTyped = confirmPhrase.trim().toUpperCase() === 'DELETE';
   const confirmOk = !requiresTypedConfirm || deleteTyped;
   const serverBlocksReset = factoryResetAllowed === false;
@@ -187,6 +197,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
       userCoins: true,
       creatorEarnings: true,
       walletLedger: true,
+      financeSettlements: true,
+      coinPurchases: true,
+      agencyMemberships: true,
+      matchesSwipes: true,
       payoutRequests: true,
       coinPackages: true,
       virtualGiftsCatalog: true,
@@ -227,6 +241,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
       userCoins: false,
       creatorEarnings: false,
       walletLedger: false,
+      financeSettlements: false,
+      coinPurchases: false,
+      agencyMemberships: false,
+      matchesSwipes: false,
       payoutRequests: false,
       coinPackages: false,
       virtualGiftsCatalog: false,
@@ -264,6 +282,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
       adminAccount: false,
       profilesMedia: false,
       walletLedger: true,
+      financeSettlements: true,
+      coinPurchases: true,
+      agencyMemberships: false,
+      matchesSwipes: true,
       userCoins: true,
       creatorEarnings: true,
       payoutRequests: true,
@@ -303,6 +325,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
       adminAccount: false,
       profilesMedia: false,
       walletLedger: false,
+      financeSettlements: false,
+      coinPurchases: false,
+      agencyMemberships: false,
+      matchesSwipes: true,
       userCoins: false,
       creatorEarnings: false,
       payoutRequests: false,
@@ -343,6 +369,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
       userCoins: true,
       creatorEarnings: true,
       walletLedger: true,
+      financeSettlements: true,
+      coinPurchases: true,
+      agencyMemberships: false,
+      matchesSwipes: false,
       payoutRequests: true,
       coinPackages: true,
       virtualGiftsCatalog: true,
@@ -461,6 +491,10 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
         userCoins: true,
         creatorEarnings: true,
         walletLedger: true,
+        financeSettlements: true,
+        coinPurchases: true,
+        agencyMemberships: true,
+        matchesSwipes: true,
         payoutRequests: true,
         coinPackages: true,
         virtualGiftsCatalog: true,
@@ -727,7 +761,8 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Deletes Agency accounts and their managed host roster (users with a teamLeaderId).
+                      Deletes Agency accounts and their managed host roster (users with a teamLeaderId). Also
+                      clears agency_memberships when selected with Agency Memberships below.
                     </p>
                   </div>
                 </label>
@@ -912,6 +947,51 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
                     </div>
                     <p className="text-[11px] text-slate-400">
                       Deletes all wallet_ledger rows. Also auto-purged with call logs, coin resets, or full user wipe.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-2.5 cursor-pointer select-none group">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(options.financeSettlements)}
+                    onChange={() => toggleOption('financeSettlements')}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-slate-200 group-hover:text-white">
+                        Settlements &amp; Financial Ledger
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-[10px] text-amber-300 font-mono">
+                        FINANCE
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Atomic wipe of salary batches, line items, settlement events, financial_ledger, and periods
+                      (required before user wipe — RESTRICT FKs).
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-2.5 cursor-pointer select-none group">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(options.coinPurchases)}
+                    onChange={() => toggleOption('coinPurchases')}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-slate-200 group-hover:text-white">
+                        Coin Purchases / Funding Records
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono">
+                        coin_purchases
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Deletes admin-manual and gateway coin purchase intents.
                     </p>
                   </div>
                 </label>
@@ -1133,6 +1213,50 @@ export const ResetMockDataModal: React.FC<ResetMockDataModalProps> = ({ isOpen, 
                     </div>
                     <p className="text-[11px] text-slate-400">
                       Clears 1-on-1 call duration, coins burned, and caller history logs.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-2.5 cursor-pointer select-none group">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(options.matchesSwipes)}
+                    onChange={() => toggleOption('matchesSwipes')}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-900 text-violet-500 focus:ring-violet-500/40"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-slate-200 group-hover:text-white">
+                        Matches &amp; Swipes Graph
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono">
+                        matches
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Deletes discovery swipe / match rows independently of call logs.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-2.5 cursor-pointer select-none group">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(options.agencyMemberships)}
+                    onChange={() => toggleOption('agencyMemberships')}
+                    className="mt-0.5 rounded border-slate-700 bg-slate-900 text-violet-500 focus:ring-violet-500/40"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-slate-200 group-hover:text-white">
+                        Agency Memberships Audit
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono">
+                        agency_memberships
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Clears formal host ↔ team leader membership history (start/end dates).
                     </p>
                   </div>
                 </label>
