@@ -137,6 +137,7 @@ const MainApp: React.FC = () => {
     currentUser,
     updateUserProfile,
     isLoggedIn,
+    logoutUser,
     pendingRatingCall,
     setPendingRatingCall,
     isDailyRewardsModalOpen,
@@ -200,6 +201,17 @@ const MainApp: React.FC = () => {
     null
   );
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  /** Auth succeeded but profile registration not finished — block main app until complete. */
+  const needsRegistrationCompletion =
+    Boolean(isLoggedIn && currentUser?.id && currentUser.isOnboarded !== true);
+
+  useEffect(() => {
+    if (needsRegistrationCompletion) {
+      setIsOnboardingOpen(true);
+      setIsAuthOpen(false);
+    }
+  }, [needsRegistrationCompletion]);
+
   const [isSocialCircleOpen, setIsSocialCircleOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isMatchOpen, setIsMatchOpen] = useState(false);
@@ -293,6 +305,27 @@ const MainApp: React.FC = () => {
           }}
         />
       </Suspense>
+    );
+  }
+
+  // Logged in but registration incomplete — lock into wizard; no main app chrome.
+  if (needsRegistrationCompletion && currentUser) {
+    return (
+      <div className="bg-app text-app min-h-screen flex flex-col font-sans">
+        <Suspense fallback={<RouteFallback />}>
+          <OnboardingWizard
+            user={currentUser}
+            onComplete={(updated) => {
+              updateUserProfile(updated.id, updated);
+              setIsOnboardingOpen(false);
+            }}
+            onCancel={() => {
+              setIsOnboardingOpen(false);
+              void logoutUser({ reason: 'manual' });
+            }}
+          />
+        </Suspense>
+      </div>
     );
   }
 
@@ -506,7 +539,12 @@ const MainApp: React.FC = () => {
               updateUserProfile(updated.id, updated);
               setIsOnboardingOpen(false);
             }}
-            onCancel={() => setIsOnboardingOpen(false)}
+            onCancel={() => {
+              setIsOnboardingOpen(false);
+              if (currentUser.isOnboarded !== true) {
+                void logoutUser({ reason: 'manual' });
+              }
+            }}
           />
         )}
         <DailyRewardsModal

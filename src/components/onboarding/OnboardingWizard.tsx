@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, OnboardingFormData, getUserRoleLabel, getFemaleRoleMark } from '../../types';
 import { completeUserProfileOnboarding } from '../../services/supabaseAuthService';
-import { uploadMediaDirectlyToR2 } from '../../utils/r2Storage';
+import { uploadMediaDirectlyToR2, isPersistableMediaUrl } from '../../utils/r2Storage';
 import { getAllowedCountries, findCountryByCodeOrName, CountryItem } from '../../utils/countries';
 import { useApp } from '../../context/AppContext';
 import { DatePicker } from '../common/DatePicker';
@@ -36,6 +36,89 @@ interface OnboardingWizardProps {
 const FALLBACK_FEMALE_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400';
 const FALLBACK_MALE_AVATAR = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=400';
 
+const ONBOARDING_DRAFT_PREFIX = 'minglecall_onboarding_draft_v1:';
+
+type OnboardingDraft = {
+  step: number;
+  formData: OnboardingFormData;
+  updatedAt: string;
+};
+
+function onboardingDraftKey(userId: string): string {
+  return `${ONBOARDING_DRAFT_PREFIX}${userId}`;
+}
+
+function stripEphemeralUrls(data: OnboardingFormData): OnboardingFormData {
+  return {
+    ...data,
+    avatarUrl: isPersistableMediaUrl(data.avatarUrl) ? data.avatarUrl : '',
+    gallery: (data.gallery || []).filter((u) => isPersistableMediaUrl(u)),
+    introVideoUrl: isPersistableMediaUrl(data.introVideoUrl) ? data.introVideoUrl : undefined,
+  };
+}
+
+function readOnboardingDraft(userId: string): OnboardingDraft | null {
+  if (typeof window === 'undefined' || !userId) return null;
+  try {
+    const raw = window.localStorage.getItem(onboardingDraftKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OnboardingDraft;
+    if (!parsed || typeof parsed.step !== 'number' || !parsed.formData) return null;
+    return {
+      step: Math.min(4, Math.max(1, parsed.step)),
+      formData: stripEphemeralUrls(parsed.formData),
+      updatedAt: parsed.updatedAt || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeOnboardingDraft(userId: string, step: number, formData: OnboardingFormData): void {
+  if (typeof window === 'undefined' || !userId) return;
+  try {
+    const payload: OnboardingDraft = {
+      step,
+      formData: stripEphemeralUrls(formData),
+      updatedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(onboardingDraftKey(userId), JSON.stringify(payload));
+  } catch {
+    // Quota / private mode — non-fatal; resume still works from DB fields when present
+  }
+}
+
+function clearOnboardingDraft(userId: string): void {
+  if (typeof window === 'undefined' || !userId) return;
+  try {
+    window.localStorage.removeItem(onboardingDraftKey(userId));
+  } catch {
+    // ignore
+  }
+}
+
+/** Infer furthest completed wizard step from already-saved profile fields (no draft). */
+function inferStepFromProfile(user: UserProfile, isFemaleHost: boolean): number {
+  const hasBasics =
+    Boolean(user.dob) &&
+    (user.age || 0) >= 18 &&
+    Boolean(user.nationality || user.countryCode) &&
+    Array.isArray(user.spokenLanguages) &&
+    user.spokenLanguages.length > 0;
+  const hasBio =
+    Boolean(user.bio?.trim()) &&
+    (isFemaleHost
+      ? Array.isArray(user.tags) && user.tags.length > 0
+      : Array.isArray(user.interests) && user.interests.length > 0) &&
+    Array.isArray(user.interestedIn) &&
+    user.interestedIn.length > 0;
+  const hasAvatar = isPersistableMediaUrl(user.avatarUrl);
+  if (hasAvatar && hasBio && hasBasics) return 4;
+  if (hasBio && hasBasics) return 3;
+  if (hasBasics) return 2;
+  return 1;
+}
+
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   user,
   onComplete,
@@ -51,7 +134,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         ? 'other'
         : 'male');
 
-  const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
 
   // Allowed worldwide countries list derived from Admin Dashboard settings
@@ -65,29 +147,60 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     return matched || allowedCountries[0] || { name: 'United States', code: 'US', flag: '🇺🇸', region: 'North America' };
   }, [user.countryCode, user.nationality, allowedCountries]);
 
-  // Form State — gender locked from account role; terms must be explicitly accepted
-  const [formData, setFormData] = useState<OnboardingFormData>({
-    dob: user.dob || '2000-01-01',
-    age: user.age || 24,
-    gender: lockedGender,
-    nationality: user.nationality || initialCountry.name,
-    countryCode: user.countryCode || initialCountry.code,
-    zodiac: user.zodiac || '',
-    spokenLanguages: user.spokenLanguages.length > 0 ? user.spokenLanguages : ['English'],
-    bio: user.bio || '',
-    interests: user.interests.length > 0 ? user.interests : [],
-    interestedIn: user.interestedIn && user.interestedIn.length > 0 
-      ? user.interestedIn 
-      : ((user.gender === 'female' || isFemaleHost || user.role === 'female_user' || user.role === 'female_creator') ? ['male'] : ['female']),
-    tags: user.tags && user.tags.length > 0 ? user.tags : [],
-    hourlyCoinRate: user.hourlyCoinRate || (isFemaleHost ? 10 : 0),
-    avatarUrl: user.avatarUrl || (isFemaleHost ? FALLBACK_FEMALE_AVATAR : FALLBACK_MALE_AVATAR),
-    gallery: user.gallery.length > 0 ? user.gallery : [],
-    introVideoUrl: user.introVideoUrl || undefined,
-    agreedToTerms: false,
-    agreedToAdultTerms: false,
-    agreedToHostTerms: false,
+  const draft = useMemo(() => readOnboardingDraft(user.id), [user.id]);
+
+  const buildInitialForm = (): OnboardingFormData => {
+    const base: OnboardingFormData = {
+      dob: user.dob || '2000-01-01',
+      age: user.age || 24,
+      gender: lockedGender,
+      nationality: user.nationality || initialCountry.name,
+      countryCode: user.countryCode || initialCountry.code,
+      zodiac: user.zodiac || '',
+      spokenLanguages: user.spokenLanguages.length > 0 ? user.spokenLanguages : ['English'],
+      bio: user.bio || '',
+      interests: user.interests.length > 0 ? user.interests : [],
+      interestedIn: user.interestedIn && user.interestedIn.length > 0
+        ? user.interestedIn
+        : ((user.gender === 'female' || isFemaleHost || user.role === 'female_user' || user.role === 'female_creator') ? ['male'] : ['female']),
+      tags: user.tags && user.tags.length > 0 ? user.tags : [],
+      hourlyCoinRate: user.hourlyCoinRate || (isFemaleHost ? 10 : 0),
+      avatarUrl: isPersistableMediaUrl(user.avatarUrl)
+        ? user.avatarUrl
+        : (isFemaleHost ? FALLBACK_FEMALE_AVATAR : FALLBACK_MALE_AVATAR),
+      gallery: (user.gallery || []).filter((u) => isPersistableMediaUrl(u)),
+      introVideoUrl: isPersistableMediaUrl(user.introVideoUrl) ? user.introVideoUrl : undefined,
+      agreedToTerms: false,
+      agreedToAdultTerms: false,
+      agreedToHostTerms: false,
+    };
+    if (!draft?.formData) return base;
+    return {
+      ...base,
+      ...draft.formData,
+      gender: lockedGender,
+      // Never resume with agreements pre-checked — user must re-confirm on final step
+      agreedToTerms: false,
+      agreedToAdultTerms: false,
+      agreedToHostTerms: false,
+      avatarUrl:
+        isPersistableMediaUrl(draft.formData.avatarUrl)
+          ? draft.formData.avatarUrl
+          : base.avatarUrl,
+      gallery:
+        draft.formData.gallery?.length > 0
+          ? draft.formData.gallery.filter((u) => isPersistableMediaUrl(u))
+          : base.gallery,
+    };
+  };
+
+  const [currentStep, setCurrentStep] = useState(() => {
+    if (draft?.step) return draft.step;
+    return inferStepFromProfile(user, isFemaleHost);
   });
+
+  // Form State — gender locked from account role; terms must be explicitly accepted
+  const [formData, setFormData] = useState<OnboardingFormData>(buildInitialForm);
 
   // Local image preview states to guarantee immediate feedback and avoid broken icons
   const [localAvatarPreview, setLocalAvatarPreview] = useState<string | null>(null);
@@ -103,6 +216,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
   const [isUploading, setIsUploading] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Persist in-progress registration so login/resume restores the same step + fields
+  useEffect(() => {
+    if (!user.id || user.isOnboarded) return;
+    writeOnboardingDraft(user.id, currentStep, formData);
+  }, [user.id, user.isOnboarded, currentStep, formData]);
 
   // Close country dropdown on outside click
   useEffect(() => {
@@ -382,6 +501,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
       const result = await completeUserProfileOnboarding(user, lockedForm);
       if (result.success && result.updatedProfile) {
+        clearOnboardingDraft(user.id);
         updateUserProfile(result.updatedProfile.id, result.updatedProfile);
         showToast('Registration Complete! 🎉', 'Your profile has been saved.', 'success');
         onComplete(result.updatedProfile);

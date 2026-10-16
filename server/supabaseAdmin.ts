@@ -432,7 +432,7 @@ export async function upsertProfileAdmin(profile: any): Promise<{ success: boole
       intro_video_url: profile.introVideoUrl || null,
       verification_video_url: profile.verificationVideoUrl || null,
       is_verified: Boolean(profile.isVerified),
-      is_onboarded: profile.isOnboarded !== undefined ? Boolean(profile.isOnboarded) : true,
+      is_onboarded: profile.isOnboarded !== undefined ? Boolean(profile.isOnboarded) : false,
       agreed_to_terms: profile.agreedToTerms !== undefined ? Boolean(profile.agreedToTerms) : true,
       agreed_to_adult_terms: Boolean(profile.agreedToAdultTerms),
       agreed_to_host_terms: Boolean(profile.agreedToHostTerms),

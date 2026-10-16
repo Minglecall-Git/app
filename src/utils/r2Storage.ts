@@ -1,5 +1,6 @@
 import { getAccessToken } from './apiClient';
 import { apiUrl } from './apiBase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export interface DirectUploadOptions {
   file: File;
@@ -34,32 +35,53 @@ export function isPersistableMediaUrl(url?: string | null): boolean {
   return Boolean(url && !isEphemeralMediaUrl(url));
 }
 
-/** Build JSON request headers with the current Supabase access token when available. */
-async function getAuthJsonHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  try {
-    const token = await getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-  } catch (err) {
-    console.warn('[R2 Storage] Unable to read Supabase session for Authorization header:', err);
+/**
+ * Resolve a live Supabase access token for storage uploads.
+ * Prefers getSession + refresh; throws if the user is not authenticated.
+ */
+async function requireUploadAccessToken(): Promise<string> {
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase is not configured. Sign in again before uploading media.');
   }
-  return headers;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      console.warn('[R2 Storage] getSession notice:', error.message);
+    }
+    let session = data?.session ?? null;
+    const expiresAtMs = Number(session?.expires_at || 0) * 1000;
+    const needsRefresh = !session?.access_token || !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
+    if (needsRefresh) {
+      const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+      if (!refreshErr && refreshed.session?.access_token) {
+        session = refreshed.session;
+      }
+    }
+    if (session?.access_token) return session.access_token;
+  } catch (err) {
+    console.warn('[R2 Storage] Session read failed:', err);
+  }
+  // Fallback to shared helper (same session source)
+  const fallback = await getAccessToken();
+  if (fallback) return fallback;
+  throw new Error(
+    'Missing bearer token. Please sign in again, then retry your photo upload.'
+  );
+}
+
+/** Build JSON request headers with a required Bearer token for storage APIs. */
+async function getAuthJsonHeaders(): Promise<Record<string, string>> {
+  const token = await requireUploadAccessToken();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 /** Auth headers without Content-Type (browser sets multipart boundary for FormData). */
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  try {
-    const token = await getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-  } catch (err) {
-    console.warn('[R2 Storage] Unable to read Supabase session for Authorization header:', err);
-  }
-  return headers;
+  const token = await requireUploadAccessToken();
+  return { Authorization: `Bearer ${token}` };
 }
 
 /** Vercel serverless body limit — server fallback cannot carry larger files. */
@@ -263,9 +285,15 @@ async function uploadMediaViaServerFallback(
 
   if (onProgress) onProgress(55);
 
+  // Always attach Bearer from the live Supabase session (required by /api/storage/upload)
+  const authHeaders = await getAuthHeaders();
+  if (!authHeaders.Authorization) {
+    throw new Error('Missing bearer token. Please sign in again, then retry your photo upload.');
+  }
+
   const res = await fetch(apiUrl('/api/storage/upload'), {
     method: 'POST',
-    headers: await getAuthHeaders(),
+    headers: authHeaders,
     body: form,
   });
 
@@ -275,6 +303,11 @@ async function uploadMediaViaServerFallback(
       throw new Error('Storage not configured');
     }
     const msg = extractStorageErrorMessage(data, 'Server storage upload failed');
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        msg || 'Upload unauthorized. Please sign in again, then retry your photo upload.'
+      );
+    }
     if (res.status === 413 || data?.code === 'FILE_TOO_LARGE') {
       throw new Error(`${R2_CORS_HINT} ${msg}`);
     }
@@ -424,10 +457,7 @@ export async function uploadMediaDirectlyToR2(
       (typeof presignedUrl === 'string' &&
         (presignedUrl.startsWith('/') || presignedUrl.includes('/api/storage/mock-upload')));
     if (needsAuthOnPut) {
-      const token = await getAccessToken();
-      if (token) {
-        extraHeaders.Authorization = `Bearer ${token}`;
-      }
+      extraHeaders.Authorization = `Bearer ${await requireUploadAccessToken()}`;
     }
 
     // 2. Direct PUT upload to Cloudflare R2 (or auth-gated local mock) with progress tracking

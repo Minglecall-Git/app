@@ -54,7 +54,8 @@ export function normalizeUserProfile(p: any): UserProfile {
     introVideoUrl: p.introVideoUrl || p.intro_video_url || undefined,
     verificationVideoUrl: p.verificationVideoUrl || p.verification_video_url || undefined,
     isVerified: Boolean(p.isVerified ?? p.is_verified),
-    isOnboarded: p.isOnboarded ?? p.is_onboarded ?? true,
+    // Incomplete / missing flag must NOT default to true — gates main app until registration finishes
+    isOnboarded: Boolean(p.isOnboarded ?? p.is_onboarded ?? false),
     agreedToTerms: p.agreedToTerms ?? p.agreed_to_terms ?? true,
     agreedToAdultTerms: Boolean(p.agreedToAdultTerms ?? p.agreed_to_adult_terms),
     agreedToHostTerms: Boolean(p.agreedToHostTerms ?? p.agreed_to_host_terms),

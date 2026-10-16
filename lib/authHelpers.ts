@@ -105,7 +105,7 @@ export function mapProfileRow(p: Record<string, unknown> | null) {
       'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=400',
     gallery: Array.isArray(p.gallery) ? p.gallery : [],
     isVerified: Boolean(p.is_verified),
-    isOnboarded: p.is_onboarded !== false,
+    isOnboarded: Boolean(p.is_onboarded),
     onlineStatus: p.online_status || 'offline',
     coinBalance: Number(p.coin_balance) || 0,
     hourlyCoinRate: Number(p.hourly_coin_rate) || 0,

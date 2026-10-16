@@ -53,7 +53,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   inviteKind = null,
   onNavigateToTab,
 }) => {
-  const { completeAuthenticatedLogin, showToast, showToastKey, updateUserProfile } = useApp();
+  const { completeAuthenticatedLogin, showToast, showToastKey, updateUserProfile, logoutUser } =
+    useApp();
 
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>(initialMode);
   const activeInviteToken =
@@ -310,9 +311,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       showToast('Email Verified Successfully! 🟢', 'Proceeding to Profile Setup...', 'success');
       
-      // Check if user is already onboarded or needs wizard
+      // Always establish session in app context; incomplete profiles are gated to the wizard by App.
+      completeAuthenticatedLogin({
+        ...verifiedUser,
+        dob: dob || verifiedUser.dob || '2000-01-01',
+        age: age || verifiedUser.age || 24,
+        isOnboarded: Boolean(verifiedUser.isOnboarded),
+      });
       if (verifiedUser.isOnboarded) {
-        completeAuthenticatedLogin(verifiedUser);
         if (onNavigateToTab) {
           if (verifiedUser.role === 'admin') {
             onNavigateToTab('admin');
@@ -322,15 +328,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onNavigateToTab('profile');
           }
         }
-        onClose();
-      } else {
-        setOnboardingProfile({
-          ...verifiedUser,
-          dob: dob || verifiedUser.dob || '2000-01-01',
-          age: age || verifiedUser.age || 24,
-        });
-        setShowOnboarding(true);
       }
+      onClose();
     } catch (err: any) {
       console.error('Verify OTP exception:', err);
       setErrorMessage('OTP verification failed. Please try again.');
@@ -396,12 +395,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return;
       }
 
-      // Check onboarding state
-      if (!res.user.isOnboarded) {
-        setOnboardingProfile(res.user);
-        setShowOnboarding(true);
-      } else {
-        completeAuthenticatedLogin(res.user);
+      // Always login into app state; App gates incomplete registration into the wizard + resume draft.
+      completeAuthenticatedLogin({
+        ...res.user,
+        isOnboarded: Boolean(res.user.isOnboarded),
+      });
+      if (res.user.isOnboarded) {
         showToastKey('auth.welcome_back', { vars: { name: res.user.name } });
         if (onNavigateToTab) {
           if (res.user.role === 'admin') {
@@ -412,8 +411,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onNavigateToTab('profile');
           }
         }
-        onClose();
+      } else {
+        showToast('Continue Registration', 'Finish your profile to access the app.', 'info');
       }
+      onClose();
     } catch (err: any) {
       console.error('Login error:', err);
       setErrorMessage('Authentication error. Please try again.');
@@ -517,6 +518,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onCancel={() => {
           setShowOnboarding(false);
           onClose();
+          void logoutUser({ reason: 'manual' });
         }}
       />
     );

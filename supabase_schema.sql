@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     intro_video_url TEXT,
     verification_video_url TEXT,
     is_verified BOOLEAN NOT NULL DEFAULT false,
-    is_onboarded BOOLEAN NOT NULL DEFAULT true,
+    is_onboarded BOOLEAN NOT NULL DEFAULT false,
     agreed_to_terms BOOLEAN NOT NULL DEFAULT true,
     agreed_to_adult_terms BOOLEAN NOT NULL DEFAULT false,
     agreed_to_host_terms BOOLEAN NOT NULL DEFAULT false,
@@ -101,7 +101,9 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS interested_in TEXT[] DEFAUL
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gallery_videos JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS intro_video_url TEXT;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_onboarded BOOLEAN DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_onboarded BOOLEAN DEFAULT false;
+-- New signups must complete the registration wizard before is_onboarded flips true
+ALTER TABLE public.profiles ALTER COLUMN is_onboarded SET DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS agreed_to_terms BOOLEAN DEFAULT true;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS agreed_to_adult_terms BOOLEAN DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS agreed_to_host_terms BOOLEAN DEFAULT false;
