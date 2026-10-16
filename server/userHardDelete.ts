@@ -178,4 +178,7 @@ export {
   assessDeletionEligibility,
   softCloseUserAccount,
   hardWipeUserCompletely,
+  listClosedAccountsAdmin,
+  reopenClosedAccountAdmin,
+  markClosedAccountDeactivatedAdmin,
 } from './userAccountClosure';

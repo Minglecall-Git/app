@@ -216,6 +216,7 @@ export const AdminDashboard: React.FC = () => {
   const [financeModuleTab, setFinanceModuleTab] = useState<
     | 'overview'
     | 'salary_batches'
+    | 'closed_accounts'
     | 'live_ledger'
     | 'platform'
     | 'team_leaders'

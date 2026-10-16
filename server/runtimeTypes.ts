@@ -84,6 +84,8 @@ export interface ServerRuntime {
 
   /** Purge a user from all in-memory maps/sets after hard-delete. */
   purgeUserRuntimeState: (userId: string) => void;
+  /** Undo soft-close / wipe tombstone so a reopened account can re-enter serverUsers. */
+  clearHardDeleteTombstone: (userId: string) => void;
   /** True if this userId was hard-deleted during this server process lifetime. */
   isUserHardDeleted: (userId: string) => boolean;
   /**

@@ -24,7 +24,14 @@ import {
   upsertProfileAdmin,
   getSupabaseAdmin,
 } from '../../server/supabaseAdmin';
-import { hardDeleteUserCompletely, cleanupOrphanAuthUsersAdmin } from '../../server/userHardDelete';
+import {
+  hardDeleteUserCompletely,
+  cleanupOrphanAuthUsersAdmin,
+  listClosedAccountsAdmin,
+  reopenClosedAccountAdmin,
+  markClosedAccountDeactivatedAdmin,
+} from '../../server/userHardDelete';
+import { normalizeUserProfile } from '../normalizeUserProfile';
 import { isR2Configured, updateR2RuntimeConfig } from '../../server/r2Storage';
 import {
   collectInfraStatus,
@@ -1247,6 +1254,139 @@ async function admin_POST_k6_smoke(ctx: ServerRuntime, auth: AuthOk, params: {  
   
 }
 
+async function admin_GET_closed_accounts(
+  _ctx: ServerRuntime,
+  _auth: AuthOk,
+  _params: Record<string, string>,
+  body: Record<string, unknown>,
+  _headers: Record<string, string>
+): Promise<HandlerResult> {
+  try {
+    const statusRaw = String(body?.status || 'all').toLowerCase();
+    const status =
+      statusRaw === 'closed_pending_payout' || statusRaw === 'deactivated' || statusRaw === 'all'
+        ? (statusRaw as 'closed_pending_payout' | 'deactivated' | 'all')
+        : 'all';
+
+    const result = await listClosedAccountsAdmin({ status, limit: 150 });
+    if (!result.success) {
+      return err(500, { success: false, error: result.error || 'Failed to list closed accounts' });
+    }
+
+    const pendingPayout = result.accounts.filter((a) => a.accountStatus === 'closed_pending_payout');
+    const deactivated = result.accounts.filter((a) => a.accountStatus === 'deactivated');
+
+    return ok({
+      success: true,
+      data: {
+        accounts: result.accounts,
+        counts: {
+          total: result.accounts.length,
+          closedPendingPayout: pendingPayout.length,
+          deactivated: deactivated.length,
+        },
+      },
+      runtime: 'next-native',
+    });
+  } catch (e: any) {
+    return err(500, { success: false, error: e?.message || 'Failed to list closed accounts' });
+  }
+}
+
+async function admin_POST_closed_accounts_reopen(
+  ctx: ServerRuntime,
+  auth: AuthOk,
+  _params: Record<string, string>,
+  body: Record<string, unknown>,
+  _headers: Record<string, string>
+): Promise<HandlerResult> {
+  try {
+    const userId = String(body.userId || '').trim();
+    if (!userId) {
+      return err(400, { success: false, error: 'userId is required' });
+    }
+
+    const result = await reopenClosedAccountAdmin(userId, auth.profileId || null);
+    if (!result.success) {
+      return err(400, {
+        success: false,
+        error: result.error || 'Failed to reopen account',
+        data: { warnings: result.warnings },
+      });
+    }
+
+    if (result.profile) {
+      const normalized = normalizeUserProfile(result.profile);
+      ctx.clearHardDeleteTombstone(normalized.id);
+      ctx.serverUsers.set(normalized.id, { ...normalized, onlineStatus: 'offline' });
+    }
+
+    ctx.broadcastUsers();
+    ctx.broadcastPresence();
+
+    return ok({
+      success: true,
+      message: result.authEnabled
+        ? 'Account reopened. Login restored.'
+        : 'Account reopened in database; Auth may need manual restore.',
+      data: {
+        userId: result.userId,
+        accountStatus: result.accountStatus,
+        authEnabled: result.authEnabled,
+        warnings: result.warnings,
+      },
+      runtime: 'next-native',
+    });
+  } catch (e: any) {
+    return err(500, { success: false, error: e?.message || 'Failed to reopen account' });
+  }
+}
+
+async function admin_POST_closed_accounts_mark_deactivated(
+  ctx: ServerRuntime,
+  auth: AuthOk,
+  _params: Record<string, string>,
+  body: Record<string, unknown>,
+  _headers: Record<string, string>
+): Promise<HandlerResult> {
+  try {
+    const userId = String(body.userId || '').trim();
+    if (!userId) {
+      return err(400, { success: false, error: 'userId is required' });
+    }
+    const note = typeof body.note === 'string' ? body.note : undefined;
+
+    const result = await markClosedAccountDeactivatedAdmin(
+      userId,
+      auth.profileId || null,
+      note
+    );
+    if (!result.success) {
+      return err(400, {
+        success: false,
+        error: result.error || 'Failed to mark deactivated',
+        data: { warnings: result.warnings },
+      });
+    }
+
+    ctx.purgeUserRuntimeState(userId);
+    ctx.broadcastUsers();
+
+    return ok({
+      success: true,
+      message: 'Account marked deactivated. Login remains disabled; financial records preserved.',
+      data: {
+        userId: result.userId,
+        accountStatus: result.accountStatus,
+        warnings: result.warnings,
+      },
+      runtime: 'next-native',
+    });
+  } catch (e: any) {
+    return err(500, { success: false, error: e?.message || 'Failed to mark deactivated' });
+  }
+}
+
 export async function dispatchAdminCore(
   method: string,
   segments: string[],
@@ -1255,6 +1395,18 @@ export async function dispatchAdminCore(
   auth: AuthOk,
   headers: Record<string, string>
 ): Promise<HandlerResult | null> {
+  if (method === 'GET') {
+    const params = matchSegments(segments, ['closed-accounts']);
+    if (params) return admin_GET_closed_accounts(ctx, auth, {}, body, headers);
+  }
+  if (method === 'POST') {
+    const params = matchSegments(segments, ['closed-accounts', 'reopen']);
+    if (params) return admin_POST_closed_accounts_reopen(ctx, auth, {}, body, headers);
+  }
+  if (method === 'POST') {
+    const params = matchSegments(segments, ['closed-accounts', 'mark-deactivated']);
+    if (params) return admin_POST_closed_accounts_mark_deactivated(ctx, auth, {}, body, headers);
+  }
   if (method === 'GET') {
     const params = matchSegments(segments, ['factory-reset-status']);
     if (params) return admin_GET_factory_reset_status(ctx, auth, {  }, body, headers);

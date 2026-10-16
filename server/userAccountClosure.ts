@@ -833,3 +833,373 @@ export async function closeOrDeleteUserCompletely(
 
   return hardWipeUserCompletely(assessed.userId, opts, assessed);
 }
+
+export interface ClosedAccountListItem {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string;
+  accountStatus: AccountStatus;
+  earningsCoins: number;
+  coinBalance: number;
+  closedAt: string | null;
+  closedReason: string | null;
+  closedById: string | null;
+  teamLeaderId: string | null;
+  agencyName: string | null;
+  unpaid: UnpaidSnapshot;
+  pendingSettlementLines: number;
+  pendingSettlementBatches: number;
+}
+
+/**
+ * Admin queue: soft-closed profiles (closed_pending_payout + deactivated).
+ */
+export async function listClosedAccountsAdmin(opts?: {
+  status?: 'closed_pending_payout' | 'deactivated' | 'all';
+  limit?: number;
+}): Promise<{ success: boolean; accounts: ClosedAccountListItem[]; error?: string }> {
+  if (!isSupabaseAdminConfigured()) {
+    return { success: false, accounts: [], error: 'Supabase admin not configured' };
+  }
+  const client = getSupabaseAdmin();
+  if (!client) {
+    return { success: false, accounts: [], error: 'Supabase admin client unavailable' };
+  }
+
+  const statusFilter = opts?.status || 'all';
+  const limit = Math.min(Math.max(Number(opts?.limit) || 100, 1), 200);
+
+  let q = client
+    .from('profiles')
+    .select(
+      'id, name, email, role, account_status, earnings_coins, coin_balance, closed_at, closed_reason, closed_by_id, team_leader_id, agency_name, is_banned'
+    )
+    .order('closed_at', { ascending: false, nullsFirst: false })
+    .limit(limit);
+
+  if (statusFilter === 'all') {
+    q = q.in('account_status', ['closed_pending_payout', 'deactivated']);
+  } else {
+    q = q.eq('account_status', statusFilter);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    return { success: false, accounts: [], error: error.message };
+  }
+
+  const rows = data || [];
+  const accounts: ClosedAccountListItem[] = [];
+
+  for (const row of rows) {
+    const id = String(row.id);
+    const unpaid = emptyUnpaid();
+    unpaid.earningsCoins = Math.max(0, Number(row.earnings_coins) || 0);
+
+    try {
+      const { count: pendingLines } = await client
+        .from('settlement_line_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('payee_user_id', id)
+        .eq('host_salary_status', 'pending');
+      unpaid.pendingSettlementLines = Number(pendingLines) || 0;
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const { count: pendingBatches } = await client
+        .from('settlement_batches')
+        .select('id', { count: 'exact', head: true })
+        .eq('payee_user_id', id)
+        .in('status', ['pending_admin_pay', 'admin_paid']);
+      unpaid.pendingSettlementBatches = Number(pendingBatches) || 0;
+    } catch {
+      /* ignore */
+    }
+
+    accounts.push({
+      id,
+      name: String(row.name || 'Member'),
+      email: row.email ? String(row.email) : null,
+      role: String(row.role || ''),
+      accountStatus: (row.account_status || 'deactivated') as AccountStatus,
+      earningsCoins: unpaid.earningsCoins,
+      coinBalance: Math.max(0, Number(row.coin_balance) || 0),
+      closedAt: row.closed_at || null,
+      closedReason: row.closed_reason || null,
+      closedById: row.closed_by_id || null,
+      teamLeaderId: row.team_leader_id || null,
+      agencyName: row.agency_name || null,
+      unpaid,
+      pendingSettlementLines: unpaid.pendingSettlementLines,
+      pendingSettlementBatches: unpaid.pendingSettlementBatches,
+    });
+  }
+
+  // Pending payouts first
+  accounts.sort((a, b) => {
+    if (a.accountStatus === 'closed_pending_payout' && b.accountStatus !== 'closed_pending_payout') {
+      return -1;
+    }
+    if (b.accountStatus === 'closed_pending_payout' && a.accountStatus !== 'closed_pending_payout') {
+      return 1;
+    }
+    const au =
+      a.unpaid.earningsCoins + a.pendingSettlementLines + a.pendingSettlementBatches;
+    const bu =
+      b.unpaid.earningsCoins + b.pendingSettlementLines + b.pendingSettlementBatches;
+    return bu - au;
+  });
+
+  return { success: true, accounts };
+}
+
+async function enableAuthUsers(
+  client: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  authIds: string[],
+  warnings: string[]
+): Promise<boolean> {
+  let allOk = true;
+  for (const aid of authIds) {
+    try {
+      const { error } = await client.auth.admin.updateUserById(aid, {
+        ban_duration: 'none',
+        app_metadata: { account_closed: false },
+      } as any);
+      if (error) {
+        warnings.push(`Auth unban failed for ${aid}: ${error.message}`);
+        allOk = false;
+      }
+    } catch (err: any) {
+      warnings.push(`Auth unban exception for ${aid}: ${err?.message || String(err)}`);
+      allOk = false;
+    }
+  }
+  return allOk;
+}
+
+/**
+ * Admin: reopen a soft-closed account (restore login + active status).
+ * Does not recreate Auth if it was deleted during soft-close.
+ */
+export async function reopenClosedAccountAdmin(
+  userId: string,
+  actorUserId?: string | null
+): Promise<{
+  success: boolean;
+  userId: string;
+  accountStatus?: AccountStatus;
+  authEnabled: boolean;
+  profile?: any;
+  warnings: string[];
+  error?: string;
+}> {
+  const warnings: string[] = [];
+  const id = String(userId || '').trim();
+  if (!id) {
+    return { success: false, userId: '', authEnabled: false, warnings, error: 'User ID is required' };
+  }
+  if (!isSupabaseAdminConfigured()) {
+    return {
+      success: false,
+      userId: id,
+      authEnabled: false,
+      warnings,
+      error: 'Supabase admin not configured',
+    };
+  }
+  const client = getSupabaseAdmin();
+  if (!client) {
+    return {
+      success: false,
+      userId: id,
+      authEnabled: false,
+      warnings,
+      error: 'Supabase admin client unavailable',
+    };
+  }
+
+  const { data: profile, error: loadErr } = await client
+    .from('profiles')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (loadErr) {
+    return { success: false, userId: id, authEnabled: false, warnings, error: loadErr.message };
+  }
+  if (!profile) {
+    return { success: false, userId: id, authEnabled: false, warnings, error: 'Profile not found' };
+  }
+
+  const status = String(profile.account_status || 'active').toLowerCase();
+  if (status !== 'closed_pending_payout' && status !== 'deactivated' && status !== 'suspended') {
+    return {
+      success: false,
+      userId: id,
+      authEnabled: false,
+      warnings,
+      error: `Account is not closed (status=${status}).`,
+    };
+  }
+
+  const { error: updErr } = await client
+    .from('profiles')
+    .update({
+      account_status: 'active',
+      is_banned: false,
+      ban_reason: null,
+      banned_until: null,
+      banned_by_id: null,
+      banned_by_role: null,
+      closed_at: null,
+      closed_reason: null,
+      closed_by_id: null,
+      online_status: 'offline',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (updErr) {
+    return { success: false, userId: id, authEnabled: false, warnings, error: updErr.message };
+  }
+
+  const authCandidates = collectAuthCandidates(profile, id, id);
+  const email = profile.email ? String(profile.email).toLowerCase().trim() : '';
+  if (email) {
+    try {
+      const byEmail = await findAuthUserIdsByEmail(client, email);
+      for (const aid of byEmail) authCandidates.add(aid);
+    } catch (err: any) {
+      warnings.push(err?.message || 'Auth email lookup failed');
+    }
+  }
+
+  const authIds = Array.from(authCandidates);
+  let authEnabled = true;
+  if (authIds.length > 0) {
+    authEnabled = await enableAuthUsers(client, authIds, warnings);
+  } else {
+    warnings.push(
+      'No Auth user found to unban. Profile is active but user may need to re-register or have Auth restored.'
+    );
+    authEnabled = false;
+  }
+
+  const { data: refreshed } = await client.from('profiles').select('*').eq('id', id).maybeSingle();
+
+  return {
+    success: true,
+    userId: id,
+    accountStatus: 'active',
+    authEnabled,
+    profile: refreshed || { ...profile, account_status: 'active', is_banned: false },
+    warnings,
+    error: authEnabled
+      ? undefined
+      : 'Profile reopened but Auth could not be fully re-enabled. Check warnings.',
+  };
+}
+
+/**
+ * Admin: after final payout, move closed_pending_payout → deactivated.
+ * Keeps login disabled and finance rows intact.
+ */
+export async function markClosedAccountDeactivatedAdmin(
+  userId: string,
+  actorUserId?: string | null,
+  note?: string
+): Promise<{
+  success: boolean;
+  userId: string;
+  accountStatus?: AccountStatus;
+  warnings: string[];
+  error?: string;
+}> {
+  const warnings: string[] = [];
+  const id = String(userId || '').trim();
+  if (!id) {
+    return { success: false, userId: '', warnings, error: 'User ID is required' };
+  }
+  if (!isSupabaseAdminConfigured()) {
+    return { success: false, userId: id, warnings, error: 'Supabase admin not configured' };
+  }
+  const client = getSupabaseAdmin();
+  if (!client) {
+    return { success: false, userId: id, warnings, error: 'Supabase admin client unavailable' };
+  }
+
+  const { data: profile, error: loadErr } = await client
+    .from('profiles')
+    .select('id, account_status, earnings_coins')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (loadErr) {
+    return { success: false, userId: id, warnings, error: loadErr.message };
+  }
+  if (!profile) {
+    return { success: false, userId: id, warnings, error: 'Profile not found' };
+  }
+
+  const status = String(profile.account_status || '').toLowerCase();
+  if (status === 'deactivated') {
+    return { success: true, userId: id, accountStatus: 'deactivated', warnings };
+  }
+  if (status !== 'closed_pending_payout') {
+    return {
+      success: false,
+      userId: id,
+      warnings,
+      error: `Only closed_pending_payout can be marked deactivated (status=${status || 'active'}).`,
+    };
+  }
+
+  const earnings = Math.max(0, Number(profile.earnings_coins) || 0);
+  let pendingLines = 0;
+  try {
+    const { count } = await client
+      .from('settlement_line_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('payee_user_id', id)
+      .eq('host_salary_status', 'pending');
+    pendingLines = Number(count) || 0;
+  } catch {
+    /* ignore */
+  }
+
+  if (earnings > 0 || pendingLines > 0) {
+    warnings.push(
+      `Warning: earnings_coins=${earnings}, pending_settlement_lines=${pendingLines}. Marking deactivated anyway (admin override).`
+    );
+  }
+
+  const reason =
+    note?.trim() ||
+    'Final payout review complete; account deactivated (finance retained)';
+
+  const { error: updErr } = await client
+    .from('profiles')
+    .update({
+      account_status: 'deactivated',
+      is_banned: true,
+      ban_reason: reason,
+      closed_reason: reason,
+      closed_by_id: actorUserId || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (updErr) {
+    return { success: false, userId: id, warnings, error: updErr.message };
+  }
+
+  return {
+    success: true,
+    userId: id,
+    accountStatus: 'deactivated',
+    warnings,
+  };
+}

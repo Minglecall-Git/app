@@ -175,6 +175,12 @@ function createNativeRuntime(): ServerRuntime {
     }
   };
 
+  const clearHardDeleteTombstone = (userId: string) => {
+    const id = String(userId || '').trim();
+    if (!id) return;
+    deletedUserTombstones.delete(id);
+  };
+
   const resetVolatileRuntimeState = (opts?: {
     clearUsers?: boolean;
     adminUser?: UserProfile | null;
@@ -250,6 +256,7 @@ function createNativeRuntime(): ServerRuntime {
     broadcastCreatorMetrics,
     sendToUser,
     purgeUserRuntimeState,
+    clearHardDeleteTombstone,
     isUserHardDeleted: (userId: string) => deletedUserTombstones.has(String(userId || '').trim()),
     resetVolatileRuntimeState,
   };

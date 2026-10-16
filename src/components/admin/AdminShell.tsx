@@ -46,6 +46,7 @@ import {
   TrendingUp,
   UserPlus,
   Users,
+  UserX,
   Wallet,
   X,
   Zap,
@@ -105,6 +106,7 @@ const ICON_MAP: Record<AdminNavIconName, LucideIcon> = {
   MessageSquare,
   Link2,
   UserPlus,
+  UserX,
 };
 
 const COLLAPSE_STORAGE_KEY = 'minglecall:admin-sidebar-collapsed';

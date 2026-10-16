@@ -78,7 +78,8 @@ export type AdminNavIconName =
   | 'Shield'
   | 'MessageSquare'
   | 'Link2'
-  | 'UserPlus';
+  | 'UserPlus'
+  | 'UserX';
 
 export interface AdminNavL2Item {
   id: string;
@@ -169,6 +170,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         children: [
           { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
           { id: 'salary_batches', label: 'Salary reconcile', icon: 'Wallet' },
+          { id: 'closed_accounts', label: 'Closed accounts', icon: 'UserX' },
           { id: 'live_ledger', label: 'Live ledger', icon: 'Coins' },
           { id: 'platform', label: 'Platform earnings', icon: 'Landmark' },
           { id: 'team_leaders', label: 'Agency earnings', icon: 'Building2' },

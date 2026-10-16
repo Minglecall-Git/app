@@ -71,6 +71,11 @@ export async function dispatchAdminNative(
       );
     }
     body = bodyParsed.data || {};
+  } else {
+    // Expose query string to admin GET handlers (e.g. ?status=closed_pending_payout)
+    req.nextUrl.searchParams.forEach((value, key) => {
+      body[key] = value;
+    });
   }
   const headers = requestHeaders(req);
   const ctx = await getServerRuntime();

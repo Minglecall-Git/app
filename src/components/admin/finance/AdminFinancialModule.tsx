@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Coins,
   LayoutDashboard,
+  UserX,
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import {
@@ -43,10 +44,12 @@ import {
 import { HostPeriodEarningsBreakdown } from '../../finance/HostPeriodEarningsBreakdown';
 import { EarningsPeriodDashboard } from '../../finance/EarningsPeriodDashboard';
 import { AdminSalaryBatchesPage } from './AdminSalaryBatchesPage';
+import { AdminClosedAccountsQueue } from './AdminClosedAccountsQueue';
 
 type FinanceHubTab =
   | 'overview'
   | 'salary_batches'
+  | 'closed_accounts'
   | 'live_ledger'
   | 'platform'
   | 'team_leaders'
@@ -59,6 +62,7 @@ type FinanceHubTab =
 const TABS: { id: FinanceHubTab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
   { id: 'salary_batches', label: 'Salary reconcile', icon: <Wallet className="w-3.5 h-3.5" /> },
+  { id: 'closed_accounts', label: 'Closed accounts', icon: <UserX className="w-3.5 h-3.5" /> },
   { id: 'live_ledger', label: 'Live ledger', icon: <Coins className="w-3.5 h-3.5" /> },
   { id: 'platform', label: 'Platform earnings', icon: <Landmark className="w-3.5 h-3.5" /> },
   { id: 'team_leaders', label: 'Agency earnings', icon: <Building2 className="w-3.5 h-3.5" /> },
@@ -421,6 +425,8 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
       )}
 
       {tab === 'salary_batches' && <AdminSalaryBatchesPage />}
+
+      {tab === 'closed_accounts' && <AdminClosedAccountsQueue />}
 
       {tab === 'overview' && (
         <div className="space-y-4">
