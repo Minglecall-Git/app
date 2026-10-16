@@ -25,6 +25,33 @@ function isChannelJoined(channel: RealtimeChannel): boolean {
   return channelState(channel) === 'joined';
 }
 
+/** Broadcast only when channel has finished joining (SUBSCRIBED → state joined). */
+async function safeChannelSend(
+  channel: RealtimeChannel | null | undefined,
+  args: { type: 'broadcast'; event: string; payload: unknown }
+): Promise<boolean> {
+  if (!channel || !isChannelJoined(channel)) return false;
+  try {
+    const status = await channel.send(args);
+    return status !== 'error';
+  } catch (e) {
+    console.warn('[RealtimeSignaling] safe send skipped/failed', channel.topic, e);
+    return false;
+  }
+}
+
+/** Untrack only when joined — avoids push-before-join on app-signals. */
+async function safeChannelUntrack(
+  channel: RealtimeChannel | null | undefined
+): Promise<void> {
+  if (!channel || !isChannelJoined(channel)) return;
+  try {
+    await channel.untrack();
+  } catch (e) {
+    console.warn('[RealtimeSignaling] safe untrack skipped/failed', channel.topic, e);
+  }
+}
+
 function isChannelJoining(channel: RealtimeChannel): boolean {
   return channelState(channel) === 'joining';
 }
@@ -279,7 +306,8 @@ export class RealtimeSignaling {
 
         this.userChannel = userChannel;
         this.aliasChannels = aliases;
-        this.presenceChannel = presenceChannel;
+        // Assign only after subscribe succeeds — avoid send/track on a joining channel
+        this.presenceChannel = null;
 
         const [userOk, ...aliasResults] = await Promise.all([
           waitForSubscribe(userChannel, 12000),
@@ -287,6 +315,12 @@ export class RealtimeSignaling {
         ]);
         // Best-effort signal channel; do not block connect on it
         const presenceOk = await waitForSubscribe(presenceChannel, 8000);
+        if (presenceOk) {
+          this.presenceChannel = presenceChannel;
+        } else {
+          await removeChannelSafe(presenceChannel);
+          this.presenceChannel = null;
+        }
         const anyInbox = userOk || aliasResults.some(Boolean);
         return { userOk: anyInbox, presenceOk };
       };
@@ -405,16 +439,12 @@ export class RealtimeSignaling {
           type.startsWith('quick_match:') ||
           type === 'match:created')
       ) {
-        // Presence first — both peers already subscribe to app-presence
-        try {
-          await this.presenceChannel?.send({
-            type: 'broadcast',
-            event: 'signal',
-            payload,
-          });
-        } catch {
-          /* best-effort */
-        }
+        // Best-effort fanout on app-signals only when fully joined (Redis owns presence TTL)
+        await safeChannelSend(this.presenceChannel, {
+          type: 'broadcast',
+          event: 'signal',
+          payload,
+        });
 
         let delivered = false;
         for (const targetId of targetIds) {
@@ -423,12 +453,11 @@ export class RealtimeSignaling {
             // Reuse our own subscribed inbox when targeting ourselves / alias — never re-join.
             const owned = this.findOwnedSubscribedChannel(targetId);
             if (owned) {
-              const sendStatus = await owned.send({
+              return safeChannelSend(owned, {
                 type: 'broadcast',
                 event: 'signal',
                 payload,
               });
-              return sendStatus !== 'error';
             }
 
             const targetChannel = await createFreshChannel(topicName, {
@@ -441,7 +470,7 @@ export class RealtimeSignaling {
               await removeChannelSafe(targetChannel);
               return false;
             }
-            const sendStatus = await targetChannel.send({
+            const sent = await safeChannelSend(targetChannel, {
               type: 'broadcast',
               event: 'signal',
               payload,
@@ -449,7 +478,7 @@ export class RealtimeSignaling {
             // Keep the ephemeral channel briefly so the broadcast can flush to peers.
             await new Promise((r) => setTimeout(r, 350));
             await removeChannelSafe(targetChannel);
-            if (sendStatus === 'error') {
+            if (!sent) {
               console.warn('[RealtimeSignaling] target broadcast error', targetId, type);
               return false;
             }
@@ -457,45 +486,33 @@ export class RealtimeSignaling {
           });
           if (ok) delivered = true;
         }
-        // Presence fanout already attempted — treat as success so caller UX continues;
-        // callee also polls GET /api/calls/incoming as hard fallback.
-        return delivered || Boolean(this.presenceChannel) || this.connected;
+        // Fanout may be best-effort — caller UX continues; callee also polls GET /api/calls/incoming.
+        return (
+          delivered ||
+          (Boolean(this.presenceChannel) && isChannelJoined(this.presenceChannel!)) ||
+          this.connected
+        );
       }
 
       if (type === 'presence:update' || type === 'heartbeat' || type === 'user:update') {
+        // Do NOT track() on app-signals — broadcast-only; Redis/HTTP owns presence.
         const nextStatus = String(payload.status || 'online').toLowerCase();
         if (nextStatus === 'offline') {
-          try {
-            await this.presenceChannel?.untrack();
-          } catch {
-            /* ignore */
-          }
-        } else if (this.presenceChannel) {
-          await this.presenceChannel.track({
-            userId: this.profileId,
-            online_at: new Date().toISOString(),
-            status: nextStatus === 'busy' || nextStatus === 'in_call' ? 'busy' : 'online',
-            ...(payload.user ? { user: payload.user } : {}),
-          });
+          await safeChannelUntrack(this.presenceChannel);
         }
-        try {
-          await this.presenceChannel?.send({
-            type: 'broadcast',
-            event: 'signal',
-            payload,
-          });
-        } catch {
-          /* ignore */
-        }
+        await safeChannelSend(this.presenceChannel, {
+          type: 'broadcast',
+          event: 'signal',
+          payload,
+        });
         return true;
       }
 
-      await this.userChannel.send({
+      return safeChannelSend(this.userChannel, {
         type: 'broadcast',
         event: 'signal',
         payload,
       });
-      return true;
     } catch (e) {
       console.warn('[RealtimeSignaling] send failed', e);
       return false;
