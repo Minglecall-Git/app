@@ -51,7 +51,17 @@ import {
 } from '../constants/appDefaults';
 import type { AppNavItem } from '../../shared/appNav';
 import { mapNavRow, mergeNavWithDefaults } from '../../shared/appNav';
-import { authFetch, getAccessToken, apiUrl, getWsUrl, SESSION_REPLACED_EVENT } from '../utils/apiClient';
+import {
+  authFetch,
+  getAccessToken,
+  waitForAccessToken,
+  seedAccessToken,
+  clearSeededAccessToken,
+  expectAuthSessionSoon,
+  apiUrl,
+  getWsUrl,
+  SESSION_REPLACED_EVENT,
+} from '../utils/apiClient';
 import {
   applyAdminActiveCallsHttpResult,
   chooseOfflineUnloadTransport,
@@ -197,6 +207,8 @@ interface AppContextType {
   users: UserProfile[];
   currentUser: UserProfile;
   isLoggedIn: boolean;
+  /** True only after a verified Supabase access token is ready for authFetch. */
+  authSessionReady: boolean;
   systemSettings: SystemSettings;
   coinPackages: CoinPackage[];
   currencyConfigs: CurrencyItem[];
@@ -260,7 +272,10 @@ interface AppContextType {
   hideToast: () => void;
   switchUser: (userOrId: string | UserProfile) => void;
   /** Apply a profile only after password/OTP Auth succeeded (not passwordless impersonation). */
-  completeAuthenticatedLogin: (profile: UserProfile) => void;
+  completeAuthenticatedLogin: (
+    profile: UserProfile,
+    opts?: { accessToken?: string | null }
+  ) => void;
   switchRolePersona: (role: UserRole) => void;
   loginUser: (identifier: string) => boolean;
   logoutUser: (opts?: { reason?: 'manual' | 'other_device' }) => void;
@@ -486,6 +501,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (saved === 'true') return true;
     return false;
   });
+  /** Gates protected API traffic until getSession()/seed yields a Bearer token. */
+  const [authSessionReady, setAuthSessionReady] = useState(() => !isSupabaseConfigured());
+  const authSessionReadyRef = useRef(!isSupabaseConfigured());
 
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(() => {
     const saved = localStorage.getItem('livecall_settings');
@@ -1113,6 +1131,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     preferredStatusRef.current = 'offline';
     supabaseAuthUserIdRef.current = null;
     accessTokenRef.current = null;
+    authSessionReadyRef.current = false;
+    setAuthSessionReady(false);
+    clearSeededAccessToken();
     setIsLoggedIn(false);
     setCurrentUserId('');
     localStorage.setItem('livecall_logged_in', 'false');
@@ -1247,12 +1268,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
 
       // Ensure token is cached before flipping login flags so the WS effect can authenticate immediately
+      expectAuthSessionSoon(5000);
+      let token: string | null = null;
       try {
-        const token = await getAccessToken();
-        if (token) accessTokenRef.current = token;
+        token = await waitForAccessToken({ timeoutMs: 4000 });
+        if (token) {
+          accessTokenRef.current = token;
+          seedAccessToken(token);
+        }
       } catch {
         // WS connect will retry token fetch
       }
+      if (!token) {
+        // Session cookie/storage not ready — do not flip isLoggedIn (avoids 401 cascade)
+        clearLocalAuthState(activeId);
+        return;
+      }
+      authSessionReadyRef.current = true;
+      setAuthSessionReady(true);
 
       // Single-device gate: if another device claimed the session, sign out here.
       // If this browser has no local id yet, ADOPT the DB id — never mint a new one on
@@ -1784,7 +1817,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // DB + HTTP fallback for incoming rings when Realtime broadcast is dropped (Vercel).
   useEffect(() => {
-    if (!isLoggedIn || !currentUserId) return;
+    if (!isLoggedIn || !currentUserId || !authSessionReady) return;
     let cancelled = false;
 
     const freshSelfIds = (): string[] => Array.from(collectSelfIds());
@@ -2001,6 +2034,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [
     isLoggedIn,
+    authSessionReady,
     currentUserId,
     currentUser?.authId,
     collectSelfIds,
@@ -2009,7 +2043,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // While in a call, poll call_logs for hangup + live coins_earned/spent (host badge on Vercel)
   useEffect(() => {
-    if (!isLoggedIn || !activeCall?.id || !isSupabaseConfigured()) return;
+    if (!isLoggedIn || !authSessionReady || !activeCall?.id || !isSupabaseConfigured()) return;
     const callId = activeCall.id;
     let cancelled = false;
 
@@ -2060,13 +2094,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Keep host/user call logs fresh (missed / completed) without relying on WS fanout
   useEffect(() => {
-    if (!isLoggedIn || !currentUserId || !isSupabaseConfigured()) return;
+    if (!isLoggedIn || !currentUserId || !authSessionReady || !isSupabaseConfigured()) return;
     const tick = () => {
       void refreshCallLogsFromDbRef.current();
     };
     const timer = setInterval(tick, 12000);
     return () => clearInterval(timer);
-  }, [isLoggedIn, currentUserId]);
+  }, [isLoggedIn, currentUserId, authSessionReady]);
 
   /** Scoped call-log hydrate for Vercel refresh (Redis stays for presence; Supabase for rows). */
   const refreshCallLogsFromDb = useCallback(async () => {
@@ -3435,7 +3469,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // After session hydrate: scoped call logs + payouts + feed (not on anonymous boot).
   useEffect(() => {
-    if (!isLoggedIn || !currentUserId || !isSupabaseConfigured()) return;
+    if (!isLoggedIn || !currentUserId || !authSessionReady || !isSupabaseConfigured()) return;
     let cancelled = false;
     void refreshCallLogsFromDb();
     void refreshFeedPosts().catch(() => {});
@@ -3449,7 +3483,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn, currentUserId, refreshCallLogsFromDb]);
+  }, [isLoggedIn, currentUserId, authSessionReady, refreshCallLogsFromDb]);
 
   // Helper to map server-side active calls into AdminActiveCall
   const mapServerCallToAdminCall = (sc: any, userList: UserProfile[]): AdminActiveCall => {
@@ -3602,7 +3636,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Periodic polling for active calls — admin only; stops on 401/403 until re-auth.
   useEffect(() => {
-    if (!isLoggedIn || !currentUserId) {
+    if (!isLoggedIn || !currentUserId || !authSessionReady) {
       stopAdminActiveCallsPoll();
       adminActiveCallsPollStateRef.current = createAdminActiveCallsPollState();
       return;
@@ -3611,9 +3645,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       stopAdminActiveCallsPoll();
     };
-  }, [isLoggedIn, currentUserId, startAdminActiveCallsPoll, stopAdminActiveCallsPoll]);
+  }, [isLoggedIn, currentUserId, authSessionReady, startAdminActiveCallsPoll, stopAdminActiveCallsPoll]);
 
   useEffect(() => {
+    // Defer all presence/WS/polling until a verified Bearer token is ready
+    if (!isLoggedIn || !currentUserId || !authSessionReady) {
+      return;
+    }
+
     let isCancelled = false;
     let ws: WebSocket | null = null;
     let heartbeatTimer: any = null;
@@ -3624,7 +3663,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Direct HTTP heartbeat & presence sync (guarantees sync even if WS reconnects or across separate tabs/devices)
     const syncPresenceDirect = async () => {
       if (isCancelled || isResettingRef.current) return;
-      if (!isLoggedInRef.current || !currentUserIdRef.current) return;
+      if (!isLoggedInRef.current || !currentUserIdRef.current || !authSessionReadyRef.current) return;
       const token = accessTokenRef.current || (await getAccessToken());
       if (!token) return;
       accessTokenRef.current = token;
@@ -3669,7 +3708,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Dedicated Supabase Social & Friend Requests Synchronizer (preserves server authoritative presence)
     const syncSupabaseStatusCycle = async () => {
       if (isCancelled || isResettingRef.current) return;
-      if (!isLoggedInRef.current || !currentUserIdRef.current) return;
+      if (!isLoggedInRef.current || !currentUserIdRef.current || !authSessionReadyRef.current) return;
       const token = accessTokenRef.current || (await getAccessToken());
       if (!token) return;
       accessTokenRef.current = token;
@@ -3698,7 +3737,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // User directory sync to pick up new accounts created in other tabs or devices (preserves live presence)
     const syncUserDirectory = async () => {
       if (isCancelled || isResettingRef.current) return;
-      if (!isLoggedInRef.current || !currentUserIdRef.current) return;
+      if (!isLoggedInRef.current || !currentUserIdRef.current || !authSessionReadyRef.current) return;
       const token = accessTokenRef.current || (await getAccessToken());
       if (!token) return;
       accessTokenRef.current = token;
@@ -4819,7 +4858,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeSupabaseChat();
       unsubscribeFriendRequests();
     };
-  }, [currentUserId, isLoggedIn]);
+  }, [currentUserId, isLoggedIn, authSessionReady]);
 
   const toastTimerRef = useRef<any>(null);
 
@@ -4921,7 +4960,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     showToast('Sign in required', 'Account switching without a password is disabled. Use email and password.', 'error');
   };
 
-  const completeAuthenticatedLogin = (profile: UserProfile) => {
+  const completeAuthenticatedLogin = (
+    profile: UserProfile,
+    opts?: { accessToken?: string | null }
+  ) => {
     if (!profile?.id) {
       showToast('Sign in failed', 'Missing authenticated profile.', 'error');
       return;
@@ -4930,8 +4972,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const activeId = profile.id;
     const oldId = currentUserIdRef.current;
 
-    const finishLogin = (token: string | null) => {
-      if (token) accessTokenRef.current = token;
+    const finishLogin = (token: string | null, opts?: { allowWithoutToken?: boolean }) => {
+      if (!token && !opts?.allowWithoutToken) {
+        authSessionReadyRef.current = false;
+        setAuthSessionReady(false);
+        showToast(
+          'Session not ready',
+          'Signed in, but the auth token is not available yet. Please try again.',
+          'error'
+        );
+        return;
+      }
+      // Token must be global before isLoggedIn flips — effects depend on authSessionReady
+      if (token) {
+        accessTokenRef.current = token;
+        seedAccessToken(token);
+      }
+      authSessionReadyRef.current = true;
+      setAuthSessionReady(true);
+
       isLoggedInRef.current = true;
       currentUserIdRef.current = activeId;
       preferredStatusRef.current = 'online';
@@ -4988,9 +5047,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     };
 
-    void getAccessToken()
-      .then((token) => finishLogin(token))
-      .catch(() => finishLogin(accessTokenRef.current));
+    if (!isSupabaseConfigured()) {
+      finishLogin(opts?.accessToken || accessTokenRef.current, { allowWithoutToken: true });
+      return;
+    }
+
+    expectAuthSessionSoon(5000);
+    const hinted = typeof opts?.accessToken === 'string' ? opts.accessToken.trim() : '';
+    if (hinted) seedAccessToken(hinted);
+
+    void waitForAccessToken({ timeoutMs: 4000 })
+      .then((token) => finishLogin(token || hinted || accessTokenRef.current))
+      .catch(() => finishLogin(hinted || accessTokenRef.current));
   };
 
   const switchRolePersona = (_role: UserRole) => {
@@ -5016,6 +5084,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     preferredStatusRef.current = 'offline';
     wsAuthenticatedRef.current = false;
     pendingCallReceiverRef.current = null;
+    authSessionReadyRef.current = false;
+    setAuthSessionReady(false);
+    accessTokenRef.current = null;
+    clearSeededAccessToken();
 
     setUsers((prev) =>
       prev.map((u) =>
@@ -9185,7 +9257,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Sync reward record from server (rollover + create handled server-side)
   useEffect(() => {
-    if (!currentUser?.id || currentUser.id === 'guest_user') return;
+    if (!isLoggedIn || !authSessionReady || !currentUser?.id || currentUser.id === 'guest_user') return;
     let isMounted = true;
 
     async function initDailyRewards() {
@@ -9215,7 +9287,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       isMounted = false;
     };
-  }, [currentUser?.id]);
+  }, [isLoggedIn, authSessionReady, currentUser?.id]);
 
   // Determine if there are unclaimed streak, missions, or master chest rewards
   const todayDateStr = getLocalRewardDayString();
@@ -9598,7 +9670,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Hydrate favorites, match records, blocks, friends when session user is ready
   useEffect(() => {
-    if (!currentUser?.id || currentUser.id === 'guest_user' || !isLoggedIn) {
+    if (!currentUser?.id || currentUser.id === 'guest_user' || !isLoggedIn || !authSessionReady) {
       setFavorites([]);
       setUserMatchRecords([]);
       setBlockedByUserIds([]);
@@ -9703,7 +9775,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       cancelled = true;
     };
-  }, [currentUser?.id, isLoggedIn]);
+  }, [currentUser?.id, isLoggedIn, authSessionReady]);
 
   const recordQuickMatch = async (
     matchedUser: UserProfile,
@@ -10368,7 +10440,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Hydrate creator metrics from REST on login (WS also pushes creator_metrics:all)
   useEffect(() => {
-    if (!isLoggedIn || !currentUserId) return;
+    if (!isLoggedIn || !currentUserId || !authSessionReady) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -10390,11 +10462,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn, currentUserId]);
+  }, [isLoggedIn, currentUserId, authSessionReady]);
 
   // Optional nudge: female creators ping server accrual every 45s while tab visible
   useEffect(() => {
-    if (!isLoggedIn || !currentUser || currentUser.gender !== 'female') return;
+    if (!isLoggedIn || !authSessionReady || !currentUser || currentUser.gender !== 'female') return;
     const creatorId = currentUser.id;
     const tick = () => {
       if (document.visibilityState !== 'visible') return;
@@ -10420,11 +10492,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     const timer = setInterval(tick, 45000);
     return () => clearInterval(timer);
-  }, [isLoggedIn, currentUser?.id, currentUser?.gender]);
+  }, [isLoggedIn, authSessionReady, currentUser?.id, currentUser?.gender]);
 
   // Lifecycle flush: push Redis pending online seconds to Postgres when tab hides / unloads
   useEffect(() => {
-    if (!isLoggedIn || !currentUser || currentUser.gender !== 'female') return;
+    if (!isLoggedIn || !authSessionReady || !currentUser || currentUser.gender !== 'female') return;
     const flush = () => {
       void (async () => {
         try {
@@ -10453,7 +10525,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', flush);
     };
-  }, [isLoggedIn, currentUser?.id, currentUser?.gender]);
+  }, [isLoggedIn, authSessionReady, currentUser?.id, currentUser?.gender]);
 
   const myCreatorMetrics = useMemo<CreatorMetrics | null>(() => {
     if (!currentUser || currentUser.gender !== 'female') return null;
@@ -10611,6 +10683,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         users,
         currentUser,
         isLoggedIn,
+        authSessionReady,
         systemSettings,
         creatorMetricsMap,
         myCreatorMetrics,

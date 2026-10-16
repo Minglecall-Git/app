@@ -312,12 +312,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       showToast('Email Verified Successfully! 🟢', 'Proceeding to Profile Setup...', 'success');
       
       // Always establish session in app context; incomplete profiles are gated to the wizard by App.
-      completeAuthenticatedLogin({
-        ...verifiedUser,
-        dob: dob || verifiedUser.dob || '2000-01-01',
-        age: age || verifiedUser.age || 24,
-        isOnboarded: Boolean(verifiedUser.isOnboarded),
-      });
+      completeAuthenticatedLogin(
+        {
+          ...verifiedUser,
+          dob: dob || verifiedUser.dob || '2000-01-01',
+          age: age || verifiedUser.age || 24,
+          isOnboarded: Boolean(verifiedUser.isOnboarded),
+        },
+        { accessToken: res.accessToken || res.session?.access_token || null }
+      );
       if (verifiedUser.isOnboarded) {
         if (onNavigateToTab) {
           if (verifiedUser.role === 'admin') {
@@ -396,10 +399,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       // Always login into app state; App gates incomplete registration into the wizard + resume draft.
-      completeAuthenticatedLogin({
-        ...res.user,
-        isOnboarded: Boolean(res.user.isOnboarded),
-      });
+      completeAuthenticatedLogin(
+        {
+          ...res.user,
+          isOnboarded: Boolean(res.user.isOnboarded),
+        },
+        { accessToken: res.accessToken || res.session?.access_token || null }
+      );
       if (res.user.isOnboarded) {
         showToastKey('auth.welcome_back', { vars: { name: res.user.name } });
         if (onNavigateToTab) {

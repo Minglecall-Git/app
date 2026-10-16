@@ -2,7 +2,13 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { UserProfile, UserRole, OnboardingFormData } from '../types';
 import { mapDbProfileToUserProfile, upsertProfileToSupabase, isValidUuid } from './supabaseService';
 import { getPasswordPolicyError } from '../../shared/passwordPolicy';
-import { authFetch, getAccessToken, apiFetch } from '../utils/apiClient';
+import {
+  authFetch,
+  getAccessToken,
+  apiFetch,
+  seedAccessToken,
+  expectAuthSessionSoon,
+} from '../utils/apiClient';
 import {
   setStoredActiveSessionId,
   clearStoredActiveSessionId,
@@ -18,6 +24,8 @@ export interface SupabaseAuthResult {
   message?: string;
   error?: string;
   session?: any;
+  /** Convenience mirror of session.access_token for login completion seeding */
+  accessToken?: string | null;
   otpCode?: string;
   showOtpInForm?: boolean;
   /** Admin policy: create accounts without email OTP */
@@ -485,12 +493,17 @@ export async function verifyEmailOtp(
           await upsertProfileToSupabase(profile);
         }
 
+        if (data.session?.access_token) {
+          seedAccessToken(data.session.access_token);
+          expectAuthSessionSoon(5000);
+        }
         return {
           success: true,
           user: profile,
           needsOnboarding: !profile.isOnboarded,
           message: 'Email successfully verified!',
           session: data.session,
+          accessToken: data.session?.access_token || null,
         };
       }
 
@@ -855,6 +868,9 @@ export async function signInWithEmailPassword(
                 'Signed in on the server but the browser session could not be saved. Hard-refresh and try again.',
             };
           }
+          // Seed immediately so authFetch/heartbeats do not race getSession() settle
+          seedAccessToken(setData.session.access_token || data.session.access_token);
+          expectAuthSessionSoon(5000);
         }
         // Server already claimed active_session_id on login — adopt it only (no re-claim).
         const activeSessionId = await claimExclusiveLoginSession({
@@ -867,6 +883,7 @@ export async function signInWithEmailPassword(
           user: data.user,
           needsOnboarding: !data.user.isOnboarded,
           session: data.session,
+          accessToken: data.session?.access_token || null,
           activeSessionId: activeSessionId || undefined,
         };
       }
@@ -967,6 +984,10 @@ export async function signInWithEmailPassword(
           markSessionClaimGrace(12000);
           setStoredActiveSessionId(existingSid);
         }
+        if (data.session?.access_token) {
+          seedAccessToken(data.session.access_token);
+          expectAuthSessionSoon(5000);
+        }
         const activeSessionId = await claimExclusiveLoginSession({
           accessToken: data.session?.access_token || null,
           knownSessionId: existingSid || null,
@@ -978,6 +999,7 @@ export async function signInWithEmailPassword(
           user: profile,
           needsOnboarding: !profile.isOnboarded,
           session: data.session,
+          accessToken: data.session?.access_token || null,
           activeSessionId: activeSessionId || undefined,
         };
       }
