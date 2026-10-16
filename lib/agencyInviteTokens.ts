@@ -1,5 +1,5 @@
 /**
- * Agency invite tokens — TL host signup links.
+ * Agency invite tokens — single-use TL host signup links.
  */
 import { randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -14,10 +14,20 @@ export type AgencyInviteTokenRow = {
   team_leader_id: string;
   max_uses: number | null;
   used_count: number;
+  is_used: boolean;
+  used_by_user_id: string | null;
   expires_at: string | null;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
+};
+
+export type InviteListItem = AgencyInviteTokenRow & {
+  inviteUrl: string;
+  status: 'active' | 'used' | 'expired' | 'inactive';
+  signupStatus: 'pending' | 'registered';
+  usedByName: string | null;
+  usedByEmail: string | null;
 };
 
 export type InviteValidationError = 'INVITE_INVALID' | 'INVITE_EXPIRED' | 'INVITE_EXHAUSTED';
@@ -29,8 +39,6 @@ export type ValidatedInvite = {
 };
 
 export type InviteOpts = {
-  regenerate?: boolean;
-  maxUses?: number | null;
   expiresInDays?: number;
 };
 
@@ -47,23 +55,34 @@ function isExpired(expiresAt: string | null | undefined): boolean {
   return t <= Date.now();
 }
 
-function isExhausted(row: Pick<AgencyInviteTokenRow, 'max_uses' | 'used_count'>): boolean {
-  if (row.max_uses == null) return false;
-  return Number(row.used_count || 0) >= Number(row.max_uses);
-}
-
 function mapRow(raw: any): AgencyInviteTokenRow {
+  const usedCount = Number(raw.used_count || 0);
+  const maxUses = raw.max_uses == null ? 1 : Number(raw.max_uses);
+  const isUsed =
+    raw.is_used === true ||
+    usedCount >= (Number.isFinite(maxUses) && maxUses > 0 ? maxUses : 1);
   return {
     id: String(raw.id),
     token: String(raw.token),
     team_leader_id: String(raw.team_leader_id),
-    max_uses: raw.max_uses == null ? null : Number(raw.max_uses),
-    used_count: Number(raw.used_count || 0),
+    max_uses: raw.max_uses == null ? 1 : Number(raw.max_uses),
+    used_count: usedCount,
+    is_used: isUsed,
+    used_by_user_id: raw.used_by_user_id ? String(raw.used_by_user_id) : null,
     expires_at: raw.expires_at ? String(raw.expires_at) : null,
     is_active: Boolean(raw.is_active),
     created_at: raw.created_at ? String(raw.created_at) : undefined,
     updated_at: raw.updated_at ? String(raw.updated_at) : undefined,
   };
+}
+
+export function deriveInviteStatus(
+  row: Pick<AgencyInviteTokenRow, 'is_used' | 'is_active' | 'expires_at'>
+): InviteListItem['status'] {
+  if (row.is_used) return 'used';
+  if (isExpired(row.expires_at)) return 'expired';
+  if (!row.is_active) return 'inactive';
+  return 'active';
 }
 
 export function buildInviteUrl(token: string, baseUrl?: string | null): string {
@@ -78,45 +97,35 @@ export function buildInviteUrl(token: string, baseUrl?: string | null): string {
 }
 
 export function invitePublicPayload(row: AgencyInviteTokenRow, baseUrl?: string | null) {
+  const status = deriveInviteStatus(row);
   return {
+    id: row.id,
     token: row.token,
     inviteUrl: buildInviteUrl(row.token, baseUrl),
     expiresAt: row.expires_at,
-    maxUses: row.max_uses,
+    maxUses: row.max_uses ?? 1,
     usedCount: row.used_count,
+    isUsed: row.is_used,
+    usedByUserId: row.used_by_user_id,
     isActive: row.is_active,
+    status,
+    createdAt: row.created_at || null,
   };
 }
 
-async function deactivateLeaderInvites(
-  client: SupabaseClient,
-  teamLeaderId: string
-): Promise<{ success: boolean; error?: string }> {
-  const nowIso = new Date().toISOString();
-  const { error } = await client
-    .from('agency_invite_tokens')
-    .update({ is_active: false, updated_at: nowIso })
-    .eq('team_leader_id', teamLeaderId)
-    .eq('is_active', true);
-  if (error) return { success: false, error: error.message };
-  return { success: true };
-}
-
-async function insertInvite(
+/** Create a fresh single-use invite token for the Team Leader. */
+export async function createSingleUseInvite(
   client: SupabaseClient,
   teamLeaderId: string,
   opts?: InviteOpts
 ): Promise<{ success: true; row: AgencyInviteTokenRow } | { success: false; error: string }> {
+  const leaderId = String(teamLeaderId || '').trim();
+  if (!leaderId) return { success: false, error: 'teamLeaderId required' };
+
   const expiresInDays =
     typeof opts?.expiresInDays === 'number' && Number.isFinite(opts.expiresInDays)
       ? Math.max(1, Math.min(365, Math.round(opts.expiresInDays)))
       : DEFAULT_INVITE_EXPIRY_DAYS;
-  const maxUses =
-    opts?.maxUses === null
-      ? null
-      : typeof opts?.maxUses === 'number' && Number.isFinite(opts.maxUses) && opts.maxUses > 0
-        ? Math.round(opts.maxUses)
-        : null;
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
   const nowIso = new Date().toISOString();
   const token = generateInviteToken();
@@ -125,9 +134,11 @@ async function insertInvite(
     .from('agency_invite_tokens')
     .insert({
       token,
-      team_leader_id: teamLeaderId,
-      max_uses: maxUses,
+      team_leader_id: leaderId,
+      max_uses: 1,
       used_count: 0,
+      is_used: false,
+      used_by_user_id: null,
       expires_at: expiresAt,
       is_active: true,
       updated_at: nowIso,
@@ -141,57 +152,85 @@ async function insertInvite(
   return { success: true, row: mapRow(data) };
 }
 
-/** Return current active non-expired invite for a TL, or null. */
+/** @deprecated Prefer createSingleUseInvite — kept for older callers. */
+export async function getOrCreateActiveInvite(
+  client: SupabaseClient,
+  teamLeaderId: string,
+  opts?: InviteOpts & { regenerate?: boolean; maxUses?: number | null }
+): Promise<{ success: true; row: AgencyInviteTokenRow } | { success: false; error: string }> {
+  return createSingleUseInvite(client, teamLeaderId, {
+    expiresInDays: opts?.expiresInDays,
+  });
+}
+
+/** @deprecated Prefer listInvitesForLeader. */
 export async function getActiveInviteForLeader(
   client: SupabaseClient,
   teamLeaderId: string
 ): Promise<AgencyInviteTokenRow | null> {
+  const listed = await listInvitesForLeader(client, teamLeaderId);
+  return listed.find((r) => deriveInviteStatus(r) === 'active') || null;
+}
+
+/** List all invite tokens for a Team Leader (newest first). */
+export async function listInvitesForLeader(
+  client: SupabaseClient,
+  teamLeaderId: string
+): Promise<AgencyInviteTokenRow[]> {
   const leaderId = String(teamLeaderId || '').trim();
-  if (!leaderId) return null;
+  if (!leaderId) return [];
 
   const { data, error } = await client
     .from('agency_invite_tokens')
     .select('*')
     .eq('team_leader_id', leaderId)
-    .eq('is_active', true)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(200);
 
   if (error) {
-    console.warn('[agencyInviteTokens] getActiveInviteForLeader:', error.message);
-    return null;
+    console.warn('[agencyInviteTokens] listInvitesForLeader:', error.message);
+    return [];
   }
-
-  for (const raw of data || []) {
-    const row = mapRow(raw);
-    if (!isExpired(row.expires_at) && !isExhausted(row)) return row;
-  }
-  return null;
+  return (data || []).map(mapRow);
 }
 
-/**
- * Get or create the TL's active invite link.
- * regenerate=true deactivates prior tokens and issues a new one.
- */
-export async function getOrCreateActiveInvite(
+/** List invites with signup user details for the dashboard table. */
+export async function listInviteManagementRows(
   client: SupabaseClient,
   teamLeaderId: string,
-  opts?: InviteOpts
-): Promise<{ success: true; row: AgencyInviteTokenRow } | { success: false; error: string }> {
-  const leaderId = String(teamLeaderId || '').trim();
-  if (!leaderId) return { success: false, error: 'teamLeaderId required' };
+  baseUrl?: string | null
+): Promise<InviteListItem[]> {
+  const rows = await listInvitesForLeader(client, teamLeaderId);
+  const usedIds = Array.from(
+    new Set(rows.map((r) => r.used_by_user_id).filter((id): id is string => Boolean(id)))
+  );
 
-  if (!opts?.regenerate) {
-    const existing = await getActiveInviteForLeader(client, leaderId);
-    if (existing) return { success: true, row: existing };
-  } else {
-    const deactivated = await deactivateLeaderInvites(client, leaderId);
-    if (!deactivated.success) {
-      return { success: false, error: deactivated.error || 'Failed to deactivate prior invites' };
+  const profileById = new Map<string, { name: string | null; email: string | null }>();
+  if (usedIds.length) {
+    const { data: profiles } = await client
+      .from('profiles')
+      .select('id, name, email')
+      .in('id', usedIds);
+    for (const p of profiles || []) {
+      profileById.set(String(p.id), {
+        name: p.name ? String(p.name) : null,
+        email: p.email ? String(p.email) : null,
+      });
     }
   }
 
-  return insertInvite(client, leaderId, opts);
+  return rows.map((row) => {
+    const status = deriveInviteStatus(row);
+    const used = profileById.get(row.used_by_user_id || '') || null;
+    return {
+      ...row,
+      inviteUrl: buildInviteUrl(row.token, baseUrl),
+      status,
+      signupStatus: row.is_used || row.used_by_user_id ? 'registered' : 'pending',
+      usedByName: used?.name || null,
+      usedByEmail: used?.email || null,
+    };
+  });
 }
 
 export async function validateInviteToken(
@@ -217,18 +256,18 @@ export async function validateInviteToken(
   }
 
   const row = mapRow(data);
+  if (row.is_used) {
+    return {
+      ok: false,
+      code: 'INVITE_EXHAUSTED',
+      message: 'This invite link has already been used.',
+    };
+  }
   if (!row.is_active) {
     return { ok: false, code: 'INVITE_INVALID', message: 'This invite link is no longer active.' };
   }
   if (isExpired(row.expires_at)) {
     return { ok: false, code: 'INVITE_EXPIRED', message: 'This invite link has expired.' };
-  }
-  if (isExhausted(row)) {
-    return {
-      ok: false,
-      code: 'INVITE_EXHAUSTED',
-      message: 'This invite link has reached its maximum number of uses.',
-    };
   }
 
   const { data: leader, error: leaderErr } = await client
@@ -258,64 +297,67 @@ export async function validateInviteToken(
   };
 }
 
-/** Atomic used_count++ with the same validity predicates. */
+/**
+ * Atomically mark invite used by hostProfileId.
+ * Fails if already used / inactive / expired.
+ */
 export async function consumeInviteToken(
   client: SupabaseClient,
-  tokenId: string
+  tokenId: string,
+  usedByUserId: string
 ): Promise<{ success: boolean; error?: string; code?: InviteValidationError }> {
   const id = String(tokenId || '').trim();
+  const hostId = String(usedByUserId || '').trim();
   if (!id) return { success: false, error: 'tokenId required', code: 'INVITE_INVALID' };
+  if (!hostId) return { success: false, error: 'usedByUserId required', code: 'INVITE_INVALID' };
 
   const nowIso = new Date().toISOString();
-  const { data: current, error: readErr } = await client
+  const { data: updated, error: updErr } = await client
     .from('agency_invite_tokens')
-    .select('*')
+    .update({
+      is_used: true,
+      used_by_user_id: hostId,
+      used_count: 1,
+      is_active: false,
+      updated_at: nowIso,
+    })
     .eq('id', id)
+    .eq('is_used', false)
+    .eq('is_active', true)
+    .select('id, expires_at')
     .maybeSingle();
 
-  if (readErr || !current) {
-    return { success: false, error: 'Invite token not found', code: 'INVITE_INVALID' };
-  }
-  const row = mapRow(current);
-  if (!row.is_active) {
-    return { success: false, error: 'Invite inactive', code: 'INVITE_INVALID' };
-  }
-  if (isExpired(row.expires_at)) {
-    return { success: false, error: 'Invite expired', code: 'INVITE_EXPIRED' };
-  }
-  if (isExhausted(row)) {
-    return { success: false, error: 'Invite exhausted', code: 'INVITE_EXHAUSTED' };
-  }
-
-  const nextCount = row.used_count + 1;
-  let query = client
-    .from('agency_invite_tokens')
-    .update({ used_count: nextCount, updated_at: nowIso })
-    .eq('id', id)
-    .eq('is_active', true)
-    .eq('used_count', row.used_count);
-
-  if (row.max_uses != null) {
-    query = query.lt('used_count', row.max_uses);
-  }
-
-  const { data: updated, error: updErr } = await query.select('id').maybeSingle();
   if (updErr) {
     return { success: false, error: updErr.message, code: 'INVITE_INVALID' };
   }
   if (!updated?.id) {
+    const { data: current } = await client
+      .from('agency_invite_tokens')
+      .select('is_used, is_active, expires_at')
+      .eq('id', id)
+      .maybeSingle();
+    if (current?.is_used) {
+      return {
+        success: false,
+        error: 'This invite link has already been used.',
+        code: 'INVITE_EXHAUSTED',
+      };
+    }
+    if (current && isExpired(current.expires_at)) {
+      return { success: false, error: 'This invite link has expired.', code: 'INVITE_EXPIRED' };
+    }
     return {
       success: false,
-      error: 'Invite could not be consumed (race or exhausted).',
+      error: 'Invite could not be consumed (already used or invalid).',
       code: 'INVITE_EXHAUSTED',
     };
   }
+
   return { success: true };
 }
 
 /**
- * Force host role + agency mapping + membership, then consume invite.
- * Shared by verify-otp and register-bootstrap.
+ * Force host role + agency mapping + membership, then atomically consume invite.
  */
 export async function applyAgencyInviteOnSignup(
   client: SupabaseClient,
@@ -346,7 +388,16 @@ export async function applyAgencyInviteOnSignup(
 
   const { row, teamLeaderId, agencyName } = validated.data;
 
-  // Targeted update only — never full upsert (would wipe existing profile fields).
+  // Consume first (atomic reserve) so concurrent signups cannot reuse the same token.
+  const consumed = await consumeInviteToken(client, row.id, hostId);
+  if (!consumed.success) {
+    return {
+      ok: false,
+      code: consumed.code || 'INVITE_EXHAUSTED',
+      message: consumed.error || 'Invite could not be consumed.',
+    };
+  }
+
   const nowIso = new Date().toISOString();
   const patch: Record<string, unknown> = {
     role: INVITE_HOST_ROLE,
@@ -368,10 +419,7 @@ export async function applyAgencyInviteOnSignup(
     .maybeSingle();
 
   if (existing?.id) {
-    const { error: forceErr } = await client
-      .from('profiles')
-      .update(patch)
-      .eq('id', hostId);
+    const { error: forceErr } = await client.from('profiles').update(patch).eq('id', hostId);
     if (forceErr) {
       return {
         ok: false,
@@ -380,7 +428,6 @@ export async function applyAgencyInviteOnSignup(
       };
     }
   } else {
-    // Auth user exists but profile row not yet written — insert minimal host row.
     const { error: insErr } = await client.from('profiles').insert({
       id: hostId,
       auth_id: hostId,
@@ -413,15 +460,6 @@ export async function applyAgencyInviteOnSignup(
       ok: false,
       code: 'INVITE_APPLY_FAILED',
       message: mem.error || 'Failed to create agency membership.',
-    };
-  }
-
-  const consumed = await consumeInviteToken(client, row.id);
-  if (!consumed.success) {
-    return {
-      ok: false,
-      code: consumed.code || 'INVITE_EXHAUSTED',
-      message: consumed.error || 'Invite could not be consumed.',
     };
   }
 

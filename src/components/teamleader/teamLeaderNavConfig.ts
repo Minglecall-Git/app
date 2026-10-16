@@ -5,6 +5,7 @@
 
 export type TeamLeaderTabKey =
   | 'creators'
+  | 'invite_links'
   | 'leaderboard'
   | 'analytics'
   | 'tl_earnings'
@@ -27,7 +28,8 @@ export type TeamLeaderNavIconName =
   | 'RefreshCw'
   | 'UserPlus'
   | 'Sparkles'
-  | 'Award';
+  | 'Award'
+  | 'Link2';
 
 export interface TeamLeaderNavL2Item {
   id: string;
@@ -62,6 +64,14 @@ export const TEAM_LEADER_NAV_GROUPS: TeamLeaderNavGroup[] = [
         icon: 'Users',
         kind: 'tab',
         buttonId: 'tl-tab-creators',
+      },
+      {
+        id: 'invite_links',
+        label: 'Invite Links',
+        icon: 'Link2',
+        kind: 'tab',
+        buttonId: 'tl-tab-invite-links',
+        title: 'Generate and track single-use host signup links',
       },
     ],
   },

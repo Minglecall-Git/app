@@ -1421,14 +1421,16 @@ COMMENT ON TABLE public.agency_memberships IS
   'Formal TL↔host membership with start/end audit. Active row has end_date NULL. profiles.team_leader_id is the denormalized current pointer.';
 
 -- ============================================================================
--- 13d. AGENCY INVITE TOKENS (TL host signup links)
+-- 13d. AGENCY INVITE TOKENS (TL host signup links — single-use)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.agency_invite_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     token TEXT NOT NULL UNIQUE,
     team_leader_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    max_uses INT,
+    max_uses INT DEFAULT 1,
     used_count INT NOT NULL DEFAULT 0,
+    is_used BOOLEAN NOT NULL DEFAULT false,
+    used_by_user_id TEXT REFERENCES public.profiles(id) ON DELETE SET NULL,
     expires_at TIMESTAMPTZ,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1437,11 +1439,20 @@ CREATE TABLE IF NOT EXISTS public.agency_invite_tokens (
     CONSTRAINT agency_invite_tokens_max_uses_chk CHECK (max_uses IS NULL OR max_uses > 0)
 );
 
+-- Idempotent upgrades for existing deployments
+ALTER TABLE public.agency_invite_tokens ADD COLUMN IF NOT EXISTS is_used BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.agency_invite_tokens ADD COLUMN IF NOT EXISTS used_by_user_id TEXT REFERENCES public.profiles(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_agency_invite_tokens_leader_active
   ON public.agency_invite_tokens (team_leader_id, is_active)
   WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_agency_invite_tokens_leader_created
+  ON public.agency_invite_tokens (team_leader_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agency_invite_tokens_token
   ON public.agency_invite_tokens (token);
+CREATE INDEX IF NOT EXISTS idx_agency_invite_tokens_used_by
+  ON public.agency_invite_tokens (used_by_user_id)
+  WHERE used_by_user_id IS NOT NULL;
 
 ALTER TABLE public.agency_invite_tokens ENABLE ROW LEVEL SECURITY;
 
@@ -1467,7 +1478,7 @@ CREATE POLICY "agency_invite_tokens write admin" ON public.agency_invite_tokens 
 ) WITH CHECK (public.is_admin_user());
 
 COMMENT ON TABLE public.agency_invite_tokens IS
-  'Secure invite tokens for Team Leader host signup links. max_uses NULL = unlimited. Active reusable link per TL preferred.';
+  'Single-use Team Leader host invite links. is_used + used_by_user_id track redemption; is_active false after use.';
 
 -- ============================================================================
 -- 14. USER DAILY REWARDS & ACTIVITY QUESTS TABLE

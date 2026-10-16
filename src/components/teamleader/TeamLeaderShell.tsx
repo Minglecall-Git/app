@@ -16,6 +16,7 @@ import {
   UserPlus,
   Users,
   Wallet,
+  Link2,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -41,6 +42,7 @@ const ICON_MAP: Record<TeamLeaderNavIconName, LucideIcon> = {
   UserPlus,
   Sparkles,
   Award,
+  Link2,
 };
 
 const COLLAPSE_STORAGE_KEY = 'minglecall:tl-sidebar-collapsed';

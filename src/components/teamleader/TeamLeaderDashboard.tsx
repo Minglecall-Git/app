@@ -161,70 +161,96 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
 
   // Modals
   const [isAddCreatorOpen, setIsAddCreatorOpen] = useState(false);
-  const [isInviteLinkOpen, setIsInviteLinkOpen] = useState(false);
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null);
-  const [inviteUsedCount, setInviteUsedCount] = useState(0);
-  const [inviteLoading, setInviteLoading] = useState(false);
 
-  const loadOrCreateInviteLink = useCallback(
-    async (regenerate = false) => {
-      setInviteLoading(true);
-      try {
-        if (!regenerate) {
-          const getRes = await authFetch('/api/agency/generate-invite');
-          const getData = await getRes.json().catch(() => ({}));
-          if (getRes.ok && getData?.success && getData?.data?.inviteUrl) {
-            setInviteUrl(String(getData.data.inviteUrl));
-            setInviteExpiresAt(getData.data.expiresAt ? String(getData.data.expiresAt) : null);
-            setInviteUsedCount(Number(getData.data.usedCount || 0));
-            return;
-          }
-        }
-        const res = await authFetch('/api/agency/generate-invite', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ regenerate }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.success || !data?.data?.inviteUrl) {
-          showToast(
-            'Invite Link Failed',
-            data?.error?.message || data?.error || 'Could not generate invite link.',
-            'error'
-          );
-          return;
-        }
-        setInviteUrl(String(data.data.inviteUrl));
-        setInviteExpiresAt(data.data.expiresAt ? String(data.data.expiresAt) : null);
-        setInviteUsedCount(Number(data.data.usedCount || 0));
-        if (regenerate) {
-          showToast('Invite Regenerated', 'Previous link is deactivated. Share the new link.', 'success');
-        }
-      } catch (e) {
-        console.warn('[TeamLeader] invite link error:', e);
-        showToast('Invite Link Failed', 'Could not generate invite link.', 'error');
-      } finally {
-        setInviteLoading(false);
-      }
-    },
-    [showToast]
-  );
-
-  const openInviteLinkCard = async () => {
-    setIsInviteLinkOpen(true);
-    await loadOrCreateInviteLink(false);
+  type InviteRow = {
+    id: string;
+    token: string;
+    inviteUrl: string;
+    status: 'active' | 'used' | 'expired' | 'inactive';
+    signupStatus: 'pending' | 'registered';
+    isUsed: boolean;
+    usedByUserId: string | null;
+    usedByName: string | null;
+    usedByEmail: string | null;
+    expiresAt: string | null;
+    createdAt: string | null;
   };
 
-  const copyInviteLink = async () => {
-    if (!inviteUrl) return;
+  const [inviteRows, setInviteRows] = useState<InviteRow[]>([]);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteGenerating, setInviteGenerating] = useState(false);
+
+  const loadInviteLinks = useCallback(async () => {
+    setInviteLoading(true);
     try {
-      await navigator.clipboard.writeText(inviteUrl);
-      showToast('Copied', 'Host invite link copied to clipboard.', 'success');
+      const res = await authFetch('/api/agency/generate-invite');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        showToast(
+          'Invite Links',
+          data?.error?.message || data?.error || 'Could not load invite links.',
+          'error'
+        );
+        return;
+      }
+      const list = Array.isArray(data?.data?.invites) ? data.data.invites : [];
+      setInviteRows(list as InviteRow[]);
+    } catch (e) {
+      console.warn('[TeamLeader] load invite links:', e);
+      showToast('Invite Links', 'Could not load invite links.', 'error');
+    } finally {
+      setInviteLoading(false);
+    }
+  }, [showToast]);
+
+  const generateInviteLink = useCallback(async () => {
+    setInviteGenerating(true);
+    try {
+      const res = await authFetch('/api/agency/generate-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success || !data?.data?.inviteUrl) {
+        showToast(
+          'Invite Link Failed',
+          data?.error?.message || data?.error || 'Could not generate invite link.',
+          'error'
+        );
+        return;
+      }
+      showToast('Invite Created', 'Single-use host invite link ready to share.', 'success');
+      await loadInviteLinks();
+      try {
+        await navigator.clipboard.writeText(String(data.data.inviteUrl));
+        showToast('Copied', 'New invite link copied to clipboard.', 'success');
+      } catch {
+        /* ignore clipboard failure */
+      }
+    } catch (e) {
+      console.warn('[TeamLeader] generate invite:', e);
+      showToast('Invite Link Failed', 'Could not generate invite link.', 'error');
+    } finally {
+      setInviteGenerating(false);
+    }
+  }, [loadInviteLinks, showToast]);
+
+  const copyInviteUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Copied', 'Invite link copied to clipboard.', 'success');
     } catch {
       showToast('Copy Failed', 'Could not copy link. Select and copy manually.', 'error');
     }
   };
+
+  useEffect(() => {
+    if (activeTab === 'invite_links') {
+      void loadInviteLinks();
+    }
+  }, [activeTab, loadInviteLinks]);
+
   const [isCreatorAvatarModalOpen, setIsCreatorAvatarModalOpen] = useState(false);
   const [viewingPayout, setViewingPayout] = useState<PayoutRequest | null>(null);
   const [editingCreator, setEditingCreator] = useState<UserProfile | null>(null);
@@ -604,11 +630,11 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => void openInviteLinkCard()}
+                  onClick={() => setActiveTab('invite_links')}
                   className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
                 >
                   <Link2 className="w-3.5 h-3.5" />
-                  <span>Host Invite Link</span>
+                  <span>Invite Links</span>
                 </button>
                 <button
                   onClick={() => setIsAddCreatorOpen(true)}
@@ -619,72 +645,6 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
                 </button>
               </div>
             </div>
-
-            {isInviteLinkOpen && (
-              <div className="rounded-2xl border border-amber-500/30 bg-[#12151F] p-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm font-bold text-amber-200 flex items-center gap-1.5">
-                      <Link2 className="w-4 h-4" />
-                      Generate Host Invite Link
-                    </h4>
-                    <p className="text-[11px] text-slate-400 mt-1 max-w-xl">
-                      Anyone who signs up with this link becomes a female host under your agency
-                      automatically.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsInviteLinkOpen(false)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-                    aria-label="Close invite link card"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-                {inviteLoading && !inviteUrl ? (
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Preparing invite link…
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={inviteUrl || ''}
-                        className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-[11px] font-mono text-slate-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void copyInviteLink()}
-                        disabled={!inviteUrl || inviteLoading}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-bold cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        Copy
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void loadOrCreateInviteLink(true)}
-                        disabled={inviteLoading}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${inviteLoading ? 'animate-spin' : ''}`} />
-                        Regenerate
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-slate-500">
-                      Uses: {inviteUsedCount}
-                      {inviteExpiresAt
-                        ? ` · Expires ${new Date(inviteExpiresAt).toLocaleString()}`
-                        : ''}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
 
             {/* Creators Grid */}
             {filteredCreators.length === 0 ? (
@@ -918,6 +878,146 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
             )}
           </div>
         )}
+
+      {/* ======================= TAB: INVITE LINKS ======================= */}
+      {activeTab === 'invite_links' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-amber-400" />
+                Host Invite Links
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-1 max-w-xl">
+                Each link is single-use. When a host signs up, the link is marked Used and shows who
+                registered.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void loadInviteLinks()}
+                disabled={inviteLoading || inviteGenerating}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${inviteLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => void generateInviteLink()}
+                disabled={inviteGenerating}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-bold cursor-pointer shadow-md"
+              >
+                {inviteGenerating ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <UserPlus className="w-3.5 h-3.5" />
+                )}
+                Generate New Invite Link
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-[#12151F] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            {inviteLoading && inviteRows.length === 0 ? (
+              <div className="p-12 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading invite links…
+              </div>
+            ) : inviteRows.length === 0 ? (
+              <div className="p-12 text-center">
+                <Link2 className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                <h4 className="text-sm font-bold text-slate-300">No invite links yet</h4>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Generate a single-use link and share it with a new female host.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-950/60 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                      <th className="px-4 py-3">Invite URL</th>
+                      <th className="px-4 py-3 whitespace-nowrap">Status</th>
+                      <th className="px-4 py-3">Signup</th>
+                      <th className="px-4 py-3 whitespace-nowrap">Created</th>
+                      <th className="px-4 py-3 whitespace-nowrap">Expires</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inviteRows.map((row) => {
+                      const statusBadge =
+                        row.status === 'active'
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : row.status === 'used'
+                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                            : row.status === 'expired'
+                              ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                              : 'bg-slate-700/40 text-slate-300 border-slate-600/40';
+                      return (
+                        <tr
+                          key={row.id}
+                          className="border-b border-slate-800/80 hover:bg-slate-900/40 align-top"
+                        >
+                          <td className="px-4 py-3 max-w-[280px]">
+                            <div className="font-mono text-[10px] text-slate-300 break-all">
+                              {row.inviteUrl}
+                            </div>
+                            <div className="font-mono text-[9px] text-slate-500 mt-1 truncate">
+                              token: {row.token.slice(0, 12)}…
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span
+                              className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-bold capitalize ${statusBadge}`}
+                            >
+                              {row.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {row.signupStatus === 'registered' ? (
+                              <div>
+                                <div className="font-semibold text-slate-100">
+                                  {row.usedByName || 'Host registered'}
+                                </div>
+                                {row.usedByEmail && (
+                                  <div className="text-[10px] text-slate-400">{row.usedByEmail}</div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-amber-300/90 font-semibold">Pending</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-400">
+                            {row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-400">
+                            {row.expiresAt ? new Date(row.expiresAt).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            {row.status === 'active' && (
+                              <button
+                                type="button"
+                                onClick={() => void copyInviteUrl(row.inviteUrl)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-200 text-[10px] font-bold border border-slate-700 cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                                Copy
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ======================= TAB 2: CALL HISTORY & ANALYTICS ======================= */}
       {activeTab === 'analytics' && (
