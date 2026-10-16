@@ -10,6 +10,7 @@ import { CheckCircle2, AlertTriangle, Info, AlertCircle, X } from 'lucide-react'
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { isSetupLocation } from './navigation/appRoutes';
 import { useAppNavigation } from './navigation/useAppNavigation';
+import { isRegistrationComplete } from './utils/registrationComplete';
 
 const RouteFallback: React.FC = () => (
   <div className="flex min-h-[40vh] items-center justify-center text-sm text-app-muted">Loading…</div>
@@ -202,8 +203,9 @@ const MainApp: React.FC = () => {
   );
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   /** Auth succeeded but profile registration not finished — block main app until complete. */
-  const needsRegistrationCompletion =
-    Boolean(isLoggedIn && currentUser?.id && currentUser.isOnboarded !== true);
+  const needsRegistrationCompletion = Boolean(
+    isLoggedIn && currentUser?.id && !isRegistrationComplete(currentUser)
+  );
 
   useEffect(() => {
     if (needsRegistrationCompletion) {
@@ -541,7 +543,7 @@ const MainApp: React.FC = () => {
             }}
             onCancel={() => {
               setIsOnboardingOpen(false);
-              if (currentUser.isOnboarded !== true) {
+              if (!isRegistrationComplete(currentUser)) {
                 void logoutUser({ reason: 'manual' });
               }
             }}

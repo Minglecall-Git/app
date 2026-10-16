@@ -63,6 +63,10 @@ import {
   SESSION_REPLACED_EVENT,
 } from '../utils/apiClient';
 import {
+  isRegistrationComplete,
+  withRegistrationCompleteFlag,
+} from '../utils/registrationComplete';
+import {
   applyAdminActiveCallsHttpResult,
   chooseOfflineUnloadTransport,
   createAdminActiveCallsPollState,
@@ -1170,7 +1174,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           let dbProfile: any = null;
           // Public columns only (wallet/email REVOKE'd from client roles).
           const profileSelect =
-            'id, auth_id, name, gender, age, dob, nationality, country_code, spoken_languages, bio, extended_bio, location_city, zodiac, interests, tags, interested_in, avatar_url, gallery, gallery_videos, intro_video_url, is_verified, online_status, role, is_onboarded, hourly_coin_rate, rating_score, total_reviews_count, total_calls_hosted, team_leader_id, created_by_id, active_session_id, created_at';
+            'id, auth_id, name, gender, age, dob, nationality, country_code, spoken_languages, bio, extended_bio, location_city, zodiac, interests, tags, interested_in, avatar_url, gallery, gallery_videos, intro_video_url, is_verified, online_status, role, is_onboarded, agreed_to_terms, agreed_to_adult_terms, agreed_to_host_terms, hourly_coin_rate, rating_score, total_reviews_count, total_calls_hosted, team_leader_id, created_by_id, active_session_id, created_at';
           // One round-trip for auth_id or id (Vercel refresh path); email only if needed.
           const { data: matched } = await supabase
             .from('profiles')
@@ -1188,7 +1192,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             dbActiveSessionId = dbProfile.active_session_id
               ? String(dbProfile.active_session_id).trim()
               : '';
-            profile = mapDbProfileToUserProfile(dbProfile);
+            profile = withRegistrationCompleteFlag(mapDbProfileToUserProfile(dbProfile));
             if (!profile.authId) profile.authId = authUserId;
           }
 
@@ -4999,12 +5003,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.setItem('livecall_logged_in', 'true');
       localStorage.setItem('livecall_current_user_id', activeId);
 
-      const activeProfile: UserProfile = {
+      const activeProfile: UserProfile = withRegistrationCompleteFlag({
         ...profile,
         id: activeId,
         onlineStatus: 'online',
         isOnboarded: Boolean(profile.isOnboarded),
-      };
+      });
       setUsers((prev) => {
         const cleanEmail = activeProfile.email ? activeProfile.email.toLowerCase().trim() : null;
         const remaining = prev.filter((u) => {
@@ -5017,6 +5021,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         usersRef.current = next;
         return next;
       });
+
+      // Repair wiped is_onboarded when step-4 policy flags prove registration finished
+      if (activeProfile.isOnboarded && !profile.isOnboarded) {
+        authFetch('/api/supabase/update-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: activeId,
+            updates: { isOnboarded: true },
+          }),
+        }).catch(() => {});
+      }
 
       updateUserStatusInSupabase(activeId, 'online').catch(() => {});
       authFetch('/api/supabase/update-status', {

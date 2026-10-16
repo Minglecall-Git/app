@@ -243,10 +243,15 @@ export function mapUserProfileToDbInsert(profile: UserProfile): Database['public
     intro_video_url: profile.introVideoUrl || null,
     verification_video_url: profile.verificationVideoUrl || null,
     is_verified: profile.isVerified,
-    is_onboarded: Boolean(profile.isOnboarded),
-    agreed_to_terms: profile.agreedToTerms ?? true,
-    agreed_to_adult_terms: profile.agreedToAdultTerms ?? false,
-    agreed_to_host_terms: profile.agreedToHostTerms ?? false,
+    // Omit when undefined so client upserts cannot reset a completed registration to false
+    ...(profile.isOnboarded !== undefined ? { is_onboarded: Boolean(profile.isOnboarded) } : {}),
+    ...(profile.agreedToTerms !== undefined ? { agreed_to_terms: Boolean(profile.agreedToTerms) } : {}),
+    ...(profile.agreedToAdultTerms !== undefined
+      ? { agreed_to_adult_terms: Boolean(profile.agreedToAdultTerms) }
+      : {}),
+    ...(profile.agreedToHostTerms !== undefined
+      ? { agreed_to_host_terms: Boolean(profile.agreedToHostTerms) }
+      : {}),
     kyc_status: profile.kycStatus || 'unsubmitted',
     kyc_documents: profile.kycDocuments ? (profile.kycDocuments as any) : null,
     online_status: profile.onlineStatus,

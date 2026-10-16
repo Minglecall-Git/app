@@ -432,10 +432,27 @@ export async function upsertProfileAdmin(profile: any): Promise<{ success: boole
       intro_video_url: profile.introVideoUrl || null,
       verification_video_url: profile.verificationVideoUrl || null,
       is_verified: Boolean(profile.isVerified),
-      is_onboarded: profile.isOnboarded !== undefined ? Boolean(profile.isOnboarded) : false,
-      agreed_to_terms: profile.agreedToTerms !== undefined ? Boolean(profile.agreedToTerms) : true,
-      agreed_to_adult_terms: Boolean(profile.agreedToAdultTerms),
-      agreed_to_host_terms: Boolean(profile.agreedToHostTerms),
+      // Only write when explicit — never default false on upsert (that wiped completed onboarding)
+      ...(profile.isOnboarded !== undefined || profile.is_onboarded !== undefined
+        ? { is_onboarded: Boolean(profile.isOnboarded ?? profile.is_onboarded) }
+        : {}),
+      ...(profile.agreedToTerms !== undefined || profile.agreed_to_terms !== undefined
+        ? { agreed_to_terms: Boolean(profile.agreedToTerms ?? profile.agreed_to_terms) }
+        : {}),
+      ...(profile.agreedToAdultTerms !== undefined || profile.agreed_to_adult_terms !== undefined
+        ? {
+            agreed_to_adult_terms: Boolean(
+              profile.agreedToAdultTerms ?? profile.agreed_to_adult_terms
+            ),
+          }
+        : {}),
+      ...(profile.agreedToHostTerms !== undefined || profile.agreed_to_host_terms !== undefined
+        ? {
+            agreed_to_host_terms: Boolean(
+              profile.agreedToHostTerms ?? profile.agreed_to_host_terms
+            ),
+          }
+        : {}),
       kyc_status: profile.kycStatus || 'unsubmitted',
       online_status: profile.onlineStatus || 'online',
       role: profile.role || 'male_user',

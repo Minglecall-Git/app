@@ -219,7 +219,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
   // Persist in-progress registration so login/resume restores the same step + fields
   useEffect(() => {
-    if (!user.id || user.isOnboarded) return;
+    if (!user.id || user.isOnboarded) {
+      if (user.id && user.isOnboarded) clearOnboardingDraft(user.id);
+      return;
+    }
     writeOnboardingDraft(user.id, currentStep, formData);
   }, [user.id, user.isOnboarded, currentStep, formData]);
 

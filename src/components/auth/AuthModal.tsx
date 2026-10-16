@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { isRegistrationComplete, withRegistrationCompleteFlag } from '../../utils/registrationComplete';
 import {
   X,
   Lock,
@@ -312,16 +313,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       showToast('Email Verified Successfully! 🟢', 'Proceeding to Profile Setup...', 'success');
       
       // Always establish session in app context; incomplete profiles are gated to the wizard by App.
-      completeAuthenticatedLogin(
-        {
-          ...verifiedUser,
-          dob: dob || verifiedUser.dob || '2000-01-01',
-          age: age || verifiedUser.age || 24,
-          isOnboarded: Boolean(verifiedUser.isOnboarded),
-        },
-        { accessToken: res.accessToken || res.session?.access_token || null }
-      );
-      if (verifiedUser.isOnboarded) {
+      const verifiedComplete = withRegistrationCompleteFlag({
+        ...verifiedUser,
+        dob: dob || verifiedUser.dob || '2000-01-01',
+        age: age || verifiedUser.age || 24,
+        isOnboarded: Boolean(verifiedUser.isOnboarded),
+      });
+      completeAuthenticatedLogin(verifiedComplete, {
+        accessToken: res.accessToken || res.session?.access_token || null,
+      });
+      if (isRegistrationComplete(verifiedComplete)) {
         if (onNavigateToTab) {
           if (verifiedUser.role === 'admin') {
             onNavigateToTab('admin');
@@ -399,19 +400,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       // Always login into app state; App gates incomplete registration into the wizard + resume draft.
-      completeAuthenticatedLogin(
-        {
-          ...res.user,
-          isOnboarded: Boolean(res.user.isOnboarded),
-        },
-        { accessToken: res.accessToken || res.session?.access_token || null }
-      );
-      if (res.user.isOnboarded) {
-        showToastKey('auth.welcome_back', { vars: { name: res.user.name } });
+      const loginUser = withRegistrationCompleteFlag({
+        ...res.user,
+        isOnboarded: Boolean(res.user.isOnboarded),
+      });
+      completeAuthenticatedLogin(loginUser, {
+        accessToken: res.accessToken || res.session?.access_token || null,
+      });
+      if (isRegistrationComplete(loginUser)) {
+        showToastKey('auth.welcome_back', { vars: { name: loginUser.name } });
         if (onNavigateToTab) {
-          if (res.user.role === 'admin') {
+          if (loginUser.role === 'admin') {
             onNavigateToTab('admin');
-          } else if (res.user.role === 'team_leader') {
+          } else if (loginUser.role === 'team_leader') {
             onNavigateToTab('team_leader');
           } else {
             onNavigateToTab('profile');

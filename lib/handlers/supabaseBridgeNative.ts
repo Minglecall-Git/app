@@ -44,6 +44,21 @@ export async function handleSupabaseUpdateProfile(
       return err(400, { success: false, error: 'userId and updates object are required' });
     }
 
+    // Completing registration terms is the authoritative signal — always persist is_onboarded
+    const agreeingToTerms =
+      updates.agreedToTerms === true ||
+      updates.agreed_to_terms === true ||
+      updates.isOnboarded === true ||
+      updates.is_onboarded === true;
+    const agreeingToPolicy =
+      updates.agreedToAdultTerms === true ||
+      updates.agreed_to_adult_terms === true ||
+      updates.agreedToHostTerms === true ||
+      updates.agreed_to_host_terms === true;
+    if (agreeingToTerms && (agreeingToPolicy || updates.isOnboarded === true || updates.is_onboarded === true)) {
+      updates = { ...updates, isOnboarded: true, is_onboarded: true };
+    }
+
     const existing =
       ctx.serverUsers.get(userId) ||
       (updates.email
