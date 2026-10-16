@@ -1,5 +1,9 @@
 import { NextRequest } from 'next/server';
 import { getPasswordPolicyError } from '../../../../shared/passwordPolicy';
+import {
+  INVITE_HOST_ROLE,
+  validateInviteToken,
+} from '../../../../lib/agencyInviteTokens';
 import { createServiceClient, sanitizePublicSignupRole } from '../../../../lib/nextAuth';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 import { parseJsonBody } from '../../../../lib/nextRequest';
@@ -26,11 +30,12 @@ export async function POST(req: NextRequest) {
     role?: string;
     confirmationUrl?: string;
     password?: string;
+    invite_token?: string;
   }>(req);
   if (!parsed.ok) return authFail(parsed.status, parsed.error.message);
 
   try {
-    const { email, name, role, confirmationUrl, password } = parsed.data || {};
+    const { email, name, role, confirmationUrl, password, invite_token } = parsed.data || {};
     if (!isValidEmail(email)) {
       return authFail(400, 'A valid email address is required');
     }
@@ -39,6 +44,20 @@ export async function POST(req: NextRequest) {
     const client = createServiceClient();
     if (!client) {
       return authFail(503, 'Authentication service is not configured.');
+    }
+
+    const inviteTokenRaw =
+      typeof invite_token === 'string' && invite_token.trim() ? invite_token.trim() : '';
+    let pendingRole = sanitizePublicSignupRole(role);
+    let storedInviteToken: string | undefined;
+
+    if (inviteTokenRaw) {
+      const validated = await validateInviteToken(client, inviteTokenRaw);
+      if (!validated.ok) {
+        return authFail(400, validated.message, { code: validated.code });
+      }
+      pendingRole = INVITE_HOST_ROLE;
+      storedInviteToken = inviteTokenRaw;
     }
 
     const existing = await findProfileByEmail(cleanEmail);
@@ -61,7 +80,8 @@ export async function POST(req: NextRequest) {
       const stored = await setPendingSignup(cleanEmail, {
         passwordHash: hashedPassword,
         name: typeof name === 'string' ? name : undefined,
-        role: sanitizePublicSignupRole(role),
+        role: pendingRole,
+        inviteToken: storedInviteToken,
       });
       if (!stored) {
         console.warn('[send-otp] Redis unavailable — pending signup not stored for', cleanEmail);
@@ -99,7 +119,7 @@ export async function POST(req: NextRequest) {
     const otpCode = generateSixDigitOtp();
     await saveOtpDb(client, cleanEmail, otpCode, {
       name: typeof name === 'string' ? name : undefined,
-      role: sanitizePublicSignupRole(role),
+      role: pendingRole,
     });
 
     const showOtpInForm = process.env.OTP_DEBUG === 'true' && getShowOtpInForm();

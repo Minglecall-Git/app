@@ -37,6 +37,8 @@ interface AuthModalProps {
   onClose: () => void;
   initialMode?: 'login' | 'register';
   defaultRole?: UserRole;
+  /** Agency host invite from ?token= — locks signup as female_creator under that TL. */
+  inviteToken?: string | null;
   onNavigateToTab?: (tab: string) => void;
 }
 
@@ -45,14 +47,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   initialMode = 'login',
   defaultRole = 'male_user',
+  inviteToken = null,
   onNavigateToTab,
 }) => {
   const { completeAuthenticatedLogin, showToast, showToastKey, updateUserProfile } = useApp();
 
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>(initialMode);
+  const activeInviteToken =
+    typeof inviteToken === 'string' && inviteToken.trim() ? inviteToken.trim() : '';
+  const inviteLockedRole: UserRole = 'female_creator';
 
   // Register Form State
-  const [selectedRole, setSelectedRole] = useState<UserRole>(defaultRole);
+  const [selectedRole, setSelectedRole] = useState<UserRole>(
+    activeInviteToken ? inviteLockedRole : defaultRole
+  );
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -92,7 +100,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
-      setSelectedRole(defaultRole);
+      setSelectedRole(activeInviteToken ? inviteLockedRole : defaultRole);
       setShowOtpScreen(false);
       setShowOnboarding(false);
       setErrorMessage(null);
@@ -105,7 +113,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setResetPassword('');
       setResetConfirmPassword('');
     }
-  }, [isOpen, initialMode, defaultRole]);
+  }, [isOpen, initialMode, defaultRole, activeInviteToken]);
 
   // OTP Timer countdown (registration OTP screen + password reset)
   useEffect(() => {
@@ -161,7 +169,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email: email.trim(),
         password,
         name: name.trim(),
-        role: selectedRole,
+        role: activeInviteToken ? inviteLockedRole : selectedRole,
+        ...(activeInviteToken ? { inviteToken: activeInviteToken } : {}),
       });
 
       if (!res.success) {
@@ -260,9 +269,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await verifyEmailOtp({
         email: email.trim(),
         token,
-        role: selectedRole,
+        role: activeInviteToken ? inviteLockedRole : selectedRole,
         name: name.trim(),
         password,
+        ...(activeInviteToken ? { inviteToken: activeInviteToken } : {}),
       });
       if (!res.success || !res.user) {
         setErrorMessage(res.error || 'Invalid or expired verification code. Please check your email inbox.');
@@ -331,7 +341,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await resendEmailOtp(email, {
         password: password || undefined,
         name: name.trim() || undefined,
-        role: selectedRole,
+        role: activeInviteToken ? inviteLockedRole : selectedRole,
+        ...(activeInviteToken ? { inviteToken: activeInviteToken } : {}),
       });
       if (res.success) {
         if (res.otpCode) {
@@ -762,7 +773,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             /* REGISTRATION FORM: ROLE SELECTION + ACCOUNT CREATION                      */
             /* ========================================================================= */
             <form onSubmit={handleStartRegistration} className="space-y-4">
-              {/* Role Selection */}
+              {/* Role Selection — locked when joining via agency invite */}
+              {activeInviteToken ? (
+                <div className="rounded-2xl border border-amber-500/40 bg-amber-950/30 px-3 py-3 space-y-1">
+                  <p className="text-xs font-bold text-amber-200">
+                    Joining as Female Host via agency invite
+                  </p>
+                  <p className="text-[11px] text-amber-100/70">
+                    Your account will be registered as a host under this agency. Gender is set to
+                    female automatically.
+                  </p>
+                </div>
+              ) : (
               <div>
                 <label className="block text-xs font-semibold text-app-muted font-mono tracking-wider mb-2">
                   Gender *
@@ -817,6 +839,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </button>
                 </div>
               </div>
+              )}
 
               {/* Full Name */}
               <div>

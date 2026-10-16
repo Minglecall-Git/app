@@ -77,6 +77,44 @@ export function extractAccessToken(req: NextRequest, body?: Record<string, unkno
 
 const AUTH_OK_PLACEHOLDER = { status: 0, error: { message: '', code: '' } };
 
+type AuthProfileRow = {
+  id: string;
+  role?: string | null;
+  auth_id?: string | null;
+  email?: string | null;
+  team_leader_id?: string | null;
+};
+
+/** Prefer exact id match, then admin role, then first row — never use .or()+maybeSingle (multi-row → null). */
+function pickAuthProfile(rows: AuthProfileRow[] | null | undefined, userId: string): AuthProfileRow | null {
+  const list = Array.isArray(rows) ? rows.filter((r) => r?.id) : [];
+  if (list.length === 0) return null;
+  const byId = list.find((r) => String(r.id) === userId);
+  if (byId) return byId;
+  const admin = list.find((r) => String(r.role || '') === 'admin');
+  if (admin) return admin;
+  return list[0];
+}
+
+async function loadAuthProfile(
+  client: SupabaseClient,
+  userId: string
+): Promise<AuthProfileRow | null> {
+  const cols = 'id, role, auth_id, email, team_leader_id';
+  const { data: byId } = await client.from('profiles').select(cols).eq('id', userId).maybeSingle();
+  if (byId?.id) return byId as AuthProfileRow;
+
+  const { data: byAuth } = await client.from('profiles').select(cols).eq('auth_id', userId).limit(5);
+  return pickAuthProfile((byAuth || []) as AuthProfileRow[], userId);
+}
+
+function firstStringRole(...candidates: unknown[]): string | null {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return null;
+}
+
 export async function requireAuth(req: NextRequest, body?: Record<string, unknown>): Promise<AuthResult> {
   const token = extractAccessToken(req, body);
   if (!token) {
@@ -89,7 +127,7 @@ export async function requireAuth(req: NextRequest, body?: Record<string, unknow
       error: { message: 'Missing bearer token', code: 'UNAUTHORIZED' },
     };
   }
-  const { url, publishableKey, anonKey, secretKey } = getSupabaseEnv();
+  const { url, publishableKey, anonKey } = getSupabaseEnv();
   const publicKey = publishableKey || anonKey;
   if (!url || !publicKey) {
     return {
@@ -117,23 +155,34 @@ export async function requireAuth(req: NextRequest, body?: Record<string, unknow
   }
   const userId = userData.user.id;
   const email = userData.user.email || undefined;
-  const appRole = (userData.user.app_metadata as any)?.role;
-  const service = secretKey ? createServiceClient() : null;
+  const metaRole = firstStringRole(
+    (userData.user.app_metadata as any)?.role,
+    (userData.user.user_metadata as any)?.role
+  );
   let profileId = userId;
-  let role = typeof appRole === 'string' && appRole ? appRole : 'male_user';
+  let role = metaRole || 'male_user';
   let teamLeaderId: string | null = null;
+
+  // Prefer service-role lookup; fall back to the caller's JWT so admin role still resolves
+  // when SUPABASE_SECRET_KEY is missing/mis-typed (client UI can see role via RLS, APIs must too).
+  const service = createServiceClient();
+  let profile: AuthProfileRow | null = null;
   if (service) {
-    const { data: profile } = await service
-      .from('profiles')
-      .select('id, role, auth_id, email, team_leader_id')
-      .or(`id.eq.${userId},auth_id.eq.${userId}`)
-      .maybeSingle();
-    if (profile?.id) {
-      profileId = String(profile.id);
-      role = String(profile.role || role);
-      teamLeaderId = profile.team_leader_id ? String(profile.team_leader_id) : null;
-    }
+    profile = await loadAuthProfile(service, userId);
   }
+  if (!profile) {
+    const userScoped = createClient(url, publicKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    profile = await loadAuthProfile(userScoped, userId);
+  }
+  if (profile?.id) {
+    profileId = String(profile.id);
+    role = String(profile.role || role);
+    teamLeaderId = profile.team_leader_id ? String(profile.team_leader_id) : null;
+  }
+
   return {
     ok: true,
     userId,
@@ -178,7 +227,10 @@ export async function requireAdmin(req: NextRequest): Promise<AuthResult> {
       role: auth.role,
       email: auth.email,
       status: 403,
-      error: { message: 'Admin privileges required', code: 'FORBIDDEN' },
+      error: {
+        message: `Admin privileges required (signed-in role: ${auth.role || 'none'}). Sign in with an admin account, or set profiles.role = 'admin' for this user.`,
+        code: 'FORBIDDEN',
+      },
     };
   }
   return auth;

@@ -195,12 +195,35 @@ const MainApp: React.FC = () => {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const [authInviteToken, setAuthInviteToken] = useState<string | null>(null);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isSocialCircleOpen, setIsSocialCircleOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isMatchOpen, setIsMatchOpen] = useState(false);
   const [chatUserId, setChatUserId] = useState<string | null>(null);
   const [selectedDeckUser, setSelectedDeckUser] = useState<UserProfile | null>(null);
+
+  // Agency host invite: /?token=... opens register with invite locked in
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token')?.trim() || '';
+      if (!token || token.length < 16) return;
+      // Avoid treating accidental short/OTP-like query values as invites
+      if (!isLoggedIn) {
+        setAuthInviteToken(token);
+        setAuthInitialMode('register');
+        setIsAuthOpen(true);
+      }
+      params.delete('token');
+      const next = params.toString();
+      const path = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash || ''}`;
+      window.history.replaceState({}, '', path);
+    } catch (e) {
+      console.warn('[App] invite token parse notice:', e);
+    }
+  }, [isLoggedIn]);
 
   const handleOpenAuth = (mode: 'login' | 'register' = 'register') => {
     setAuthInitialMode(mode);
@@ -455,8 +478,12 @@ const MainApp: React.FC = () => {
         <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
         <AuthModal
           isOpen={isAuthOpen}
-          onClose={() => setIsAuthOpen(false)}
+          onClose={() => {
+            setIsAuthOpen(false);
+            setAuthInviteToken(null);
+          }}
           initialMode={authInitialMode}
+          inviteToken={authInviteToken}
           onNavigateToTab={(tab) => navigateTab(tab)}
         />
         {isOnboardingOpen && currentUser && (

@@ -157,8 +157,10 @@ export async function signUpWithEmailOtp(params: {
   email: string;
   password?: string;
   role: UserRole;
+  /** Agency host invite from ?token= — forces female_creator + TL mapping server-side. */
+  inviteToken?: string;
 }): Promise<SupabaseAuthResult> {
-  const { name, email, password, role } = params;
+  const { name, email, password, role, inviteToken } = params;
   const passwordError = getPasswordPolicyError(password);
   if (passwordError || typeof password !== 'string') {
     return { success: false, error: passwordError ?? 'Password is required.' };
@@ -167,7 +169,8 @@ export async function signUpWithEmailOtp(params: {
   if (!cleanEmail.includes('@')) {
     return { success: false, error: 'Please provide a valid email address.' };
   }
-  const safeRole = sanitizeClientSignupRole(role);
+  const cleanInvite = typeof inviteToken === 'string' && inviteToken.trim() ? inviteToken.trim() : '';
+  const safeRole = cleanInvite ? ('female_creator' as UserRole) : sanitizeClientSignupRole(role);
   const lockedGender = lockedGenderFromRole(safeRole);
 
   // Block if a real profile already exists for this email
@@ -203,6 +206,7 @@ export async function signUpWithEmailOtp(params: {
         name,
         role: safeRole,
         password,
+        ...(cleanInvite ? { invite_token: cleanInvite } : {}),
       }),
     });
     const sData = await sRes.json().catch(() => ({}));
@@ -231,6 +235,7 @@ export async function signUpWithEmailOtp(params: {
           password,
           name,
           role: safeRole,
+          ...(cleanInvite ? { invite_token: cleanInvite } : {}),
         }),
       });
       const bootData = await bootRes.json().catch(() => ({}));
@@ -253,15 +258,19 @@ export async function signUpWithEmailOtp(params: {
         };
       }
 
-      const isFemaleRole = lockedGender === 'female';
+      const bootRole = sanitizeClientSignupRole(
+        (bootData.role as UserRole) || safeRole
+      ) as UserRole;
+      const bootGender = lockedGenderFromRole(bootRole);
+      const isFemaleRole = bootGender === 'female';
       const createdProfile: UserProfile = {
         id: bootId,
         authId: bootId,
         name,
         email: cleanEmail,
-        gender: lockedGender,
+        gender: bootGender,
         genderLocked: true,
-        role: safeRole,
+        role: bootRole,
         age: 24,
         dob: '2000-01-01',
         nationality: 'United States',
@@ -278,11 +287,13 @@ export async function signUpWithEmailOtp(params: {
         onlineStatus: 'online',
         createdAt: new Date().toISOString().split('T')[0],
         coinBalance: isFemaleRole ? 0 : 50,
-        hourlyCoinRate: safeRole === 'female_creator' ? 10 : 0,
+        hourlyCoinRate: bootRole === 'female_creator' ? 10 : 0,
         earningsCoins: 0,
         totalLifetimeEarnedUSD: 0,
         emailVerified: true,
-        agencyName: undefined,
+        agencyName: bootData.agencyName || undefined,
+        teamLeaderId: bootData.teamLeaderId || undefined,
+        createdById: bootData.teamLeaderId || undefined,
         commissionPercent: undefined,
       };
 
@@ -332,6 +343,7 @@ export async function verifyEmailOtp(
         role?: UserRole;
         name?: string;
         password?: string;
+        inviteToken?: string;
       }
     | string,
   tokenArg?: string,
@@ -344,6 +356,7 @@ export async function verifyEmailOtp(
   let role: UserRole | undefined = roleArg;
   let name: string | undefined = nameArg;
   let password: string | undefined;
+  let inviteToken: string | undefined;
 
   if (typeof paramsOrEmail === 'string') {
     email = paramsOrEmail;
@@ -355,7 +368,10 @@ export async function verifyEmailOtp(
     if (paramsOrEmail.role) role = paramsOrEmail.role;
     if (paramsOrEmail.name) name = paramsOrEmail.name;
     if (paramsOrEmail.password) password = paramsOrEmail.password;
+    if (paramsOrEmail.inviteToken) inviteToken = paramsOrEmail.inviteToken;
   }
+  const cleanInvite =
+    typeof inviteToken === 'string' && inviteToken.trim() ? inviteToken.trim() : '';
 
   const cleanEmail = email.trim().toLowerCase();
   const cleanToken = token.trim();
@@ -502,17 +518,31 @@ export async function verifyEmailOtp(
         token: cleanToken,
         // Activates Auth password + email_confirm for pending signups (required for first login)
         ...(password ? { password } : {}),
+        ...(cleanInvite ? { invite_token: cleanInvite } : {}),
       }),
     });
     if (serverVerifyRes.ok) {
       const sData = await serverVerifyRes.json();
       if (sData.success) {
         const metaRole = sanitizeClientSignupRole(
-          (role as UserRole) || (sData.metadata?.role as UserRole) || 'male_user'
+          (sData.metadata?.role as UserRole) ||
+            (cleanInvite ? 'female_creator' : undefined) ||
+            (role as UserRole) ||
+            'male_user'
         );
         const lockedGender = lockedGenderFromRole(metaRole);
         const isMetaFemale = lockedGender === 'female';
         const isMetaOther = lockedGender === 'other';
+        const metaTeamLeaderId =
+          typeof sData.metadata?.teamLeaderId === 'string'
+            ? sData.metadata.teamLeaderId
+            : undefined;
+        const metaAgencyName =
+          typeof sData.metadata?.agencyName === 'string'
+            ? sData.metadata.agencyName
+            : sData.metadata?.agencyName === null
+              ? null
+              : undefined;
 
         // Require a real auth/profile identity — never mint orphan UUIDs for the same inbox.
         // Prefer server-returned authId: custom OTP leaves no browser session, and profiles
@@ -579,7 +609,9 @@ export async function verifyEmailOtp(
               role: metaRole,
               gender: lockedGender,
               genderLocked: true,
-              agencyName: undefined,
+              agencyName: metaAgencyName === undefined ? undefined : metaAgencyName || undefined,
+              teamLeaderId: metaTeamLeaderId || existingProfile.teamLeaderId,
+              createdById: metaTeamLeaderId || existingProfile.createdById,
               commissionPercent: undefined,
               emailVerified: true,
               isOnboarded: Boolean(existingProfile.isOnboarded),
@@ -612,6 +644,9 @@ export async function verifyEmailOtp(
               earningsCoins: 0,
               totalLifetimeEarnedUSD: 0,
               emailVerified: true,
+              teamLeaderId: metaTeamLeaderId,
+              createdById: metaTeamLeaderId,
+              agencyName: metaAgencyName || undefined,
             };
 
         try {
@@ -620,6 +655,9 @@ export async function verifyEmailOtp(
             role: metaRole,
             gender: lockedGender,
             emailVerified: true,
+            teamLeaderId: metaTeamLeaderId || verifiedUser.teamLeaderId,
+            createdById: metaTeamLeaderId || verifiedUser.createdById,
+            agencyName: metaAgencyName === undefined ? verifiedUser.agencyName : metaAgencyName || undefined,
           });
         } catch (e) {
           console.warn('Upsert verified user error:', e);
@@ -663,11 +701,15 @@ export async function verifyEmailOtp(
  */
 export async function resendEmailOtp(
   email: string,
-  opts?: { password?: string; name?: string; role?: UserRole }
+  opts?: { password?: string; name?: string; role?: UserRole; inviteToken?: string }
 ): Promise<{ success: boolean; message: string; error?: string; otpCode?: string; showOtpInForm?: boolean }> {
   const cleanEmail = email.trim().toLowerCase();
   let serverOtpCode: string | undefined;
   let serverShowOtpInForm: boolean | undefined;
+  const cleanInvite =
+    typeof opts?.inviteToken === 'string' && opts.inviteToken.trim()
+      ? opts.inviteToken.trim()
+      : '';
 
   // 1. Trigger server email dispatch
   try {
@@ -678,7 +720,12 @@ export async function resendEmailOtp(
         email: cleanEmail,
         ...(opts?.password ? { password: opts.password } : {}),
         ...(opts?.name ? { name: opts.name } : {}),
-        ...(opts?.role ? { role: sanitizeClientSignupRole(opts.role) } : {}),
+        ...(opts?.role
+          ? { role: cleanInvite ? 'female_creator' : sanitizeClientSignupRole(opts.role) }
+          : cleanInvite
+            ? { role: 'female_creator' }
+            : {}),
+        ...(cleanInvite ? { invite_token: cleanInvite } : {}),
       }),
     });
     if (sRes.ok) {

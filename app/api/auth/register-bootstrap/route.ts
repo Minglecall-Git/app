@@ -1,5 +1,10 @@
 import { NextRequest } from 'next/server';
 import { getPasswordPolicyError } from '../../../../shared/passwordPolicy';
+import {
+  INVITE_HOST_ROLE,
+  applyAgencyInviteOnSignup,
+  validateInviteToken,
+} from '../../../../lib/agencyInviteTokens';
 import { createServiceClient, sanitizePublicSignupRole } from '../../../../lib/nextAuth';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 import { parseJsonBody } from '../../../../lib/nextRequest';
@@ -32,11 +37,12 @@ export async function POST(req: NextRequest) {
     password?: string;
     name?: string;
     role?: string;
+    invite_token?: string;
   }>(req);
   if (!parsed.ok) return authFail(parsed.status, parsed.error.message);
 
   try {
-    const { email, password, name, role } = parsed.data || {};
+    const { email, password, name, role, invite_token } = parsed.data || {};
     if (!isValidEmail(email)) {
       return authFail(400, 'A valid email address is required');
     }
@@ -49,15 +55,26 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
-    const safeRole = sanitizePublicSignupRole(role);
-    const gender = genderFromPublicRole(safeRole);
-    const displayName =
-      typeof name === 'string' && name.trim() ? name.trim() : cleanEmail.split('@')[0] || 'User';
+    const inviteTokenRaw =
+      typeof invite_token === 'string' && invite_token.trim() ? invite_token.trim() : '';
 
     const client = getSupabaseAdmin() || createServiceClient();
     if (!client) {
       return authFail(503, 'Authentication service is not configured.');
     }
+
+    let safeRole = sanitizePublicSignupRole(role);
+    if (inviteTokenRaw) {
+      const validated = await validateInviteToken(client, inviteTokenRaw);
+      if (!validated.ok) {
+        return authFail(400, validated.message, { code: validated.code });
+      }
+      safeRole = INVITE_HOST_ROLE;
+    }
+
+    const gender = genderFromPublicRole(safeRole);
+    const displayName =
+      typeof name === 'string' && name.trim() ? name.trim() : cleanEmail.split('@')[0] || 'User';
 
     let allowCreateWithoutOtp = false;
     let emailRegisterEnabled = true;
@@ -177,12 +194,33 @@ export async function POST(req: NextRequest) {
       } as Record<string, unknown>)
       .ilike('email', cleanEmail);
 
+    let inviteTeamLeaderId: string | undefined;
+    let inviteAgencyName: string | null | undefined;
+
+    if (inviteTokenRaw) {
+      const applied = await applyAgencyInviteOnSignup(client, {
+        inviteToken: inviteTokenRaw,
+        hostProfileId: authUserId,
+        displayName,
+        email: cleanEmail,
+      });
+      if (!applied.ok) {
+        return authFail(400, applied.message, { code: applied.code });
+      }
+      safeRole = applied.role;
+      inviteTeamLeaderId = applied.teamLeaderId;
+      inviteAgencyName = applied.agencyName;
+    }
+
     return authJson({
       success: true,
       authId: authUserId,
       userId: authUserId,
       role: safeRole,
-      gender,
+      gender: genderFromPublicRole(safeRole),
+      ...(inviteTeamLeaderId
+        ? { teamLeaderId: inviteTeamLeaderId, agencyName: inviteAgencyName ?? null }
+        : {}),
       message: 'Auth account ready for OTP verification.',
     });
   } catch (err: unknown) {

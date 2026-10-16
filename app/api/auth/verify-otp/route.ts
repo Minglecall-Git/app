@@ -1,5 +1,9 @@
 import { NextRequest } from 'next/server';
 import { getPasswordPolicyError } from '../../../../shared/passwordPolicy';
+import {
+  INVITE_HOST_ROLE,
+  applyAgencyInviteOnSignup,
+} from '../../../../lib/agencyInviteTokens';
 import { createServiceClient, sanitizePublicSignupRole } from '../../../../lib/nextAuth';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 import { parseJsonBody } from '../../../../lib/nextRequest';
@@ -31,11 +35,16 @@ export async function POST(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'otpVerify');
   if (limited) return authFail(429, 'Too many requests. Please try again later.');
 
-  const parsed = await parseJsonBody<{ email?: string; token?: string; password?: string }>(req);
+  const parsed = await parseJsonBody<{
+    email?: string;
+    token?: string;
+    password?: string;
+    invite_token?: string;
+  }>(req);
   if (!parsed.ok) return authFail(parsed.status, parsed.error.message);
 
   try {
-    const { email, token, password } = parsed.data || {};
+    const { email, token, password, invite_token } = parsed.data || {};
     if (!isValidEmail(email) || !isValidOtpToken(token)) {
       return authFail(400, 'A valid email and 6-digit OTP code are required');
     }
@@ -60,11 +69,17 @@ export async function POST(req: NextRequest) {
     }
 
     const pendingRedis = await getPendingSignup(cleanEmail);
+    const bodyInvite =
+      typeof invite_token === 'string' && invite_token.trim() ? invite_token.trim() : '';
+    const pendingInvite = pendingRedis?.inviteToken?.trim() || '';
+    const inviteTokenToApply = pendingInvite || bodyInvite || '';
+
     const pending = pendingRedis
       ? {
           passwordHash: pendingRedis.passwordHash,
           name: pendingRedis.name,
-          role: pendingRedis.role,
+          role: inviteTokenToApply ? INVITE_HOST_ROLE : pendingRedis.role,
+          inviteToken: inviteTokenToApply || undefined,
         }
       : null;
 
@@ -75,13 +90,17 @@ export async function POST(req: NextRequest) {
       (existing?.id && AUTH_UUID_RE.test(String(existing.id)) && String(existing.id)) ||
       undefined;
 
+    let safeRole = sanitizePublicSignupRole(
+      pending?.role || verifyResult.metadata?.role
+    );
+    if (inviteTokenToApply) safeRole = INVITE_HOST_ROLE;
+
     if (hasPassword && pending) {
       const policyError = getPasswordPolicyError(password);
       if (policyError) {
         return authFail(400, policyError);
       }
 
-      const safeRole = sanitizePublicSignupRole(pending.role || verifyResult.metadata?.role);
       if (isSupabaseAdminConfigured()) {
         const adminRes = await updateUserPasswordAdmin(existing?.id || '', password, cleanEmail, {
           name: pending.name || verifyResult.metadata?.name,
@@ -139,6 +158,30 @@ export async function POST(req: NextRequest) {
       return authFail(500, 'Email verified, but account creation failed. Please try again.');
     }
 
+    let inviteMeta: {
+      teamLeaderId?: string;
+      agencyName?: string | null;
+      role?: string;
+    } = {};
+
+    if (inviteTokenToApply && resolvedAuthId) {
+      const applied = await applyAgencyInviteOnSignup(client, {
+        inviteToken: inviteTokenToApply,
+        hostProfileId: resolvedAuthId,
+        displayName: pending?.name || verifyResult.metadata?.name,
+        email: cleanEmail,
+      });
+      if (!applied.ok) {
+        return authFail(400, applied.message, { code: applied.code });
+      }
+      safeRole = applied.role;
+      inviteMeta = {
+        teamLeaderId: applied.teamLeaderId,
+        agencyName: applied.agencyName,
+        role: applied.role,
+      };
+    }
+
     return authJson({
       success: true,
       message: 'OTP Code verified successfully',
@@ -148,7 +191,13 @@ export async function POST(req: NextRequest) {
       metadata: {
         ...(verifyResult.metadata || {}),
         name: verifyResult.metadata?.name || pending?.name,
-        role: sanitizePublicSignupRole(verifyResult.metadata?.role || pending?.role),
+        role: inviteMeta.role || safeRole,
+        ...(inviteMeta.teamLeaderId
+          ? {
+              teamLeaderId: inviteMeta.teamLeaderId,
+              agencyName: inviteMeta.agencyName ?? null,
+            }
+          : {}),
       },
     });
   } catch (err: unknown) {

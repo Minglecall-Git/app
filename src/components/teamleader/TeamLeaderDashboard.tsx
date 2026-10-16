@@ -60,6 +60,8 @@ import {
   Ban,
   Trash2,
   UserX,
+  Link2,
+  Copy,
 } from 'lucide-react';
 
 interface TeamLeaderDashboardProps {
@@ -159,6 +161,70 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
 
   // Modals
   const [isAddCreatorOpen, setIsAddCreatorOpen] = useState(false);
+  const [isInviteLinkOpen, setIsInviteLinkOpen] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null);
+  const [inviteUsedCount, setInviteUsedCount] = useState(0);
+  const [inviteLoading, setInviteLoading] = useState(false);
+
+  const loadOrCreateInviteLink = useCallback(
+    async (regenerate = false) => {
+      setInviteLoading(true);
+      try {
+        if (!regenerate) {
+          const getRes = await authFetch('/api/agency/generate-invite');
+          const getData = await getRes.json().catch(() => ({}));
+          if (getRes.ok && getData?.success && getData?.data?.inviteUrl) {
+            setInviteUrl(String(getData.data.inviteUrl));
+            setInviteExpiresAt(getData.data.expiresAt ? String(getData.data.expiresAt) : null);
+            setInviteUsedCount(Number(getData.data.usedCount || 0));
+            return;
+          }
+        }
+        const res = await authFetch('/api/agency/generate-invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ regenerate }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.success || !data?.data?.inviteUrl) {
+          showToast(
+            'Invite Link Failed',
+            data?.error?.message || data?.error || 'Could not generate invite link.',
+            'error'
+          );
+          return;
+        }
+        setInviteUrl(String(data.data.inviteUrl));
+        setInviteExpiresAt(data.data.expiresAt ? String(data.data.expiresAt) : null);
+        setInviteUsedCount(Number(data.data.usedCount || 0));
+        if (regenerate) {
+          showToast('Invite Regenerated', 'Previous link is deactivated. Share the new link.', 'success');
+        }
+      } catch (e) {
+        console.warn('[TeamLeader] invite link error:', e);
+        showToast('Invite Link Failed', 'Could not generate invite link.', 'error');
+      } finally {
+        setInviteLoading(false);
+      }
+    },
+    [showToast]
+  );
+
+  const openInviteLinkCard = async () => {
+    setIsInviteLinkOpen(true);
+    await loadOrCreateInviteLink(false);
+  };
+
+  const copyInviteLink = async () => {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      showToast('Copied', 'Host invite link copied to clipboard.', 'success');
+    } catch {
+      showToast('Copy Failed', 'Could not copy link. Select and copy manually.', 'error');
+    }
+  };
   const [isCreatorAvatarModalOpen, setIsCreatorAvatarModalOpen] = useState(false);
   const [viewingPayout, setViewingPayout] = useState<PayoutRequest | null>(null);
   const [editingCreator, setEditingCreator] = useState<UserProfile | null>(null);
@@ -537,6 +603,14 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
                 </select>
 
                 <button
+                  type="button"
+                  onClick={() => void openInviteLinkCard()}
+                  className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  <span>Host Invite Link</span>
+                </button>
+                <button
                   onClick={() => setIsAddCreatorOpen(true)}
                   className="flex items-center space-x-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer shrink-0"
                 >
@@ -545,6 +619,72 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
                 </button>
               </div>
             </div>
+
+            {isInviteLinkOpen && (
+              <div className="rounded-2xl border border-amber-500/30 bg-[#12151F] p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-200 flex items-center gap-1.5">
+                      <Link2 className="w-4 h-4" />
+                      Generate Host Invite Link
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-xl">
+                      Anyone who signs up with this link becomes a female host under your agency
+                      automatically.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsInviteLinkOpen(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                    aria-label="Close invite link card"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {inviteLoading && !inviteUrl ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Preparing invite link…
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={inviteUrl || ''}
+                        className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-[11px] font-mono text-slate-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void copyInviteLink()}
+                        disabled={!inviteUrl || inviteLoading}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-bold cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        Copy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void loadOrCreateInviteLink(true)}
+                        disabled={inviteLoading}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${inviteLoading ? 'animate-spin' : ''}`} />
+                        Regenerate
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      Uses: {inviteUsedCount}
+                      {inviteExpiresAt
+                        ? ` · Expires ${new Date(inviteExpiresAt).toLocaleString()}`
+                        : ''}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Creators Grid */}
             {filteredCreators.length === 0 ? (

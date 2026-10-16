@@ -156,6 +156,8 @@ export type PendingSignupRecord = {
   passwordHash: string;
   name?: string;
   role?: string;
+  /** Agency host invite token (validated again at verify/bootstrap). */
+  inviteToken?: string;
   updatedAt: number;
 };
 
@@ -168,7 +170,7 @@ export function pendingSignupKey(email: string): string {
 
 export async function setPendingSignup(
   email: string,
-  payload: { passwordHash: string; name?: string; role?: string }
+  payload: { passwordHash: string; name?: string; role?: string; inviteToken?: string }
 ): Promise<boolean> {
   const client = getRedis();
   if (!client) return false;

@@ -1421,6 +1421,55 @@ COMMENT ON TABLE public.agency_memberships IS
   'Formal TL↔host membership with start/end audit. Active row has end_date NULL. profiles.team_leader_id is the denormalized current pointer.';
 
 -- ============================================================================
+-- 13d. AGENCY INVITE TOKENS (TL host signup links)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.agency_invite_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token TEXT NOT NULL UNIQUE,
+    team_leader_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    max_uses INT,
+    used_count INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT agency_invite_tokens_used_chk CHECK (used_count >= 0),
+    CONSTRAINT agency_invite_tokens_max_uses_chk CHECK (max_uses IS NULL OR max_uses > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agency_invite_tokens_leader_active
+  ON public.agency_invite_tokens (team_leader_id, is_active)
+  WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_agency_invite_tokens_token
+  ON public.agency_invite_tokens (token);
+
+ALTER TABLE public.agency_invite_tokens ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "agency_invite_tokens select tl" ON public.agency_invite_tokens;
+DROP POLICY IF EXISTS "agency_invite_tokens select admin" ON public.agency_invite_tokens;
+DROP POLICY IF EXISTS "agency_invite_tokens write admin" ON public.agency_invite_tokens;
+
+CREATE POLICY "agency_invite_tokens select tl" ON public.agency_invite_tokens FOR SELECT USING (
+  team_leader_id = public.current_profile_id()
+  OR EXISTS (
+    SELECT 1 FROM public.profiles me
+    WHERE me.id = public.current_profile_id()
+      AND me.role IN ('team_leader', 'agency_manager')
+      AND me.id = agency_invite_tokens.team_leader_id
+  )
+);
+CREATE POLICY "agency_invite_tokens select admin" ON public.agency_invite_tokens FOR SELECT USING (
+  public.is_admin_user()
+);
+-- Mutations via service-role APIs only
+CREATE POLICY "agency_invite_tokens write admin" ON public.agency_invite_tokens FOR ALL USING (
+  public.is_admin_user()
+) WITH CHECK (public.is_admin_user());
+
+COMMENT ON TABLE public.agency_invite_tokens IS
+  'Secure invite tokens for Team Leader host signup links. max_uses NULL = unlimited. Active reusable link per TL preferred.';
+
+-- ============================================================================
 -- 14. USER DAILY REWARDS & ACTIVITY QUESTS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.user_daily_rewards (

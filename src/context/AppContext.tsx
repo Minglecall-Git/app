@@ -7824,10 +7824,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success || !data?.user?.id) {
+        const errObj = data?.error;
         const msg =
-          data?.error?.message ||
+          (typeof errObj === 'string' ? errObj : errObj?.message) ||
           data?.message ||
-          `Failed to create agency (HTTP ${res.status}).`;
+          (res.status === 403
+            ? 'Admin privileges required. Sign out and sign back in as an admin account whose profiles.role is admin.'
+            : `Failed to create agency (HTTP ${res.status}).`);
         showToast('Agency Not Created', msg, 'error');
         return null;
       }
