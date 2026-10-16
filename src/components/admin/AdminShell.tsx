@@ -27,6 +27,7 @@ import {
   Layers,
   LayoutDashboard,
   LayoutTemplate,
+  Link2,
   Mail,
   Menu,
   MessageSquare,
@@ -43,6 +44,7 @@ import {
   Target,
   Trash2,
   TrendingUp,
+  UserPlus,
   Users,
   Wallet,
   X,
@@ -101,6 +103,8 @@ const ICON_MAP: Record<AdminNavIconName, LucideIcon> = {
   Sparkles,
   Heart,
   MessageSquare,
+  Link2,
+  UserPlus,
 };
 
 const COLLAPSE_STORAGE_KEY = 'minglecall:admin-sidebar-collapsed';

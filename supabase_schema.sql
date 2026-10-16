@@ -1481,6 +1481,52 @@ COMMENT ON TABLE public.agency_invite_tokens IS
   'Single-use Team Leader host invite links. is_used + used_by_user_id track redemption; is_active false after use.';
 
 -- ============================================================================
+-- 13e. ADMIN TL INVITES (Admin → Team Leader signup links — single-use)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.admin_tl_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token TEXT NOT NULL UNIQUE,
+    created_by_admin_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    target_role TEXT NOT NULL DEFAULT 'team_leader'
+      CHECK (target_role IN ('team_leader')),
+    invite_type TEXT NOT NULL DEFAULT 'team_leader'
+      CHECK (invite_type IN ('team_leader')),
+    is_used BOOLEAN NOT NULL DEFAULT false,
+    used_by_user_id TEXT REFERENCES public.profiles(id) ON DELETE SET NULL,
+    expires_at TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_tl_invites_admin_created
+  ON public.admin_tl_invites (created_by_admin_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_tl_invites_token
+  ON public.admin_tl_invites (token);
+CREATE INDEX IF NOT EXISTS idx_admin_tl_invites_active
+  ON public.admin_tl_invites (is_active, is_used)
+  WHERE is_active = true AND is_used = false;
+CREATE INDEX IF NOT EXISTS idx_admin_tl_invites_used_by
+  ON public.admin_tl_invites (used_by_user_id)
+  WHERE used_by_user_id IS NOT NULL;
+
+ALTER TABLE public.admin_tl_invites ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "admin_tl_invites select admin" ON public.admin_tl_invites;
+DROP POLICY IF EXISTS "admin_tl_invites write admin" ON public.admin_tl_invites;
+
+CREATE POLICY "admin_tl_invites select admin" ON public.admin_tl_invites FOR SELECT USING (
+  public.is_admin_user()
+);
+-- Mutations via service-role admin APIs only
+CREATE POLICY "admin_tl_invites write admin" ON public.admin_tl_invites FOR ALL USING (
+  public.is_admin_user()
+) WITH CHECK (public.is_admin_user());
+
+COMMENT ON TABLE public.admin_tl_invites IS
+  'Single-use Admin → Team Leader invite links. target_role/invite_type = team_leader; is_used + used_by_user_id track redemption.';
+
+-- ============================================================================
 -- 14. USER DAILY REWARDS & ACTIVITY QUESTS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.user_daily_rewards (

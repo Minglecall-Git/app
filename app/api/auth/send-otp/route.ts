@@ -1,9 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getPasswordPolicyError } from '../../../../shared/passwordPolicy';
-import {
-  INVITE_HOST_ROLE,
-  validateInviteToken,
-} from '../../../../lib/agencyInviteTokens';
+import { validateSignupInviteToken } from '../../../../lib/signupInvites';
 import { createServiceClient, sanitizePublicSignupRole } from '../../../../lib/nextAuth';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 import { parseJsonBody } from '../../../../lib/nextRequest';
@@ -52,11 +49,11 @@ export async function POST(req: NextRequest) {
     let storedInviteToken: string | undefined;
 
     if (inviteTokenRaw) {
-      const validated = await validateInviteToken(client, inviteTokenRaw);
+      const validated = await validateSignupInviteToken(client, inviteTokenRaw);
       if (!validated.ok) {
         return authFail(400, validated.message, { code: validated.code });
       }
-      pendingRole = INVITE_HOST_ROLE;
+      pendingRole = validated.data.role;
       storedInviteToken = inviteTokenRaw;
     }
 

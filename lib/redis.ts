@@ -156,7 +156,7 @@ export type PendingSignupRecord = {
   passwordHash: string;
   name?: string;
   role?: string;
-  /** Agency host invite token (validated again at verify/bootstrap). */
+  /** Host (?token=) or TL (?tl_invite=) invite — validated again at verify/bootstrap. */
   inviteToken?: string;
   updatedAt: number;
 };

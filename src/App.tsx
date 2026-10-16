@@ -196,6 +196,9 @@ const MainApp: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
   const [authInviteToken, setAuthInviteToken] = useState<string | null>(null);
+  const [authInviteKind, setAuthInviteKind] = useState<'female_host' | 'team_leader' | null>(
+    null
+  );
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isSocialCircleOpen, setIsSocialCircleOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -203,20 +206,28 @@ const MainApp: React.FC = () => {
   const [chatUserId, setChatUserId] = useState<string | null>(null);
   const [selectedDeckUser, setSelectedDeckUser] = useState<UserProfile | null>(null);
 
-  // Agency host invite: /?token=... opens register with invite locked in
+  // Invites: /?token=... (host) or /?tl_invite=... (Team Leader) open register locked in
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const params = new URLSearchParams(window.location.search);
-      const token = params.get('token')?.trim() || '';
-      if (!token || token.length < 16) return;
-      // Avoid treating accidental short/OTP-like query values as invites
+      const tlInvite = params.get('tl_invite')?.trim() || '';
+      const hostToken = params.get('token')?.trim() || '';
+      const token = tlInvite || hostToken;
+      const kind: 'female_host' | 'team_leader' | null = tlInvite
+        ? 'team_leader'
+        : hostToken
+          ? 'female_host'
+          : null;
+      if (!token || token.length < 16 || !kind) return;
       if (!isLoggedIn) {
         setAuthInviteToken(token);
+        setAuthInviteKind(kind);
         setAuthInitialMode('register');
         setIsAuthOpen(true);
       }
       params.delete('token');
+      params.delete('tl_invite');
       const next = params.toString();
       const path = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash || ''}`;
       window.history.replaceState({}, '', path);
@@ -481,9 +492,11 @@ const MainApp: React.FC = () => {
           onClose={() => {
             setIsAuthOpen(false);
             setAuthInviteToken(null);
+            setAuthInviteKind(null);
           }}
           initialMode={authInitialMode}
           inviteToken={authInviteToken}
+          inviteKind={authInviteKind}
           onNavigateToTab={(tab) => navigateTab(tab)}
         />
         {isOnboardingOpen && currentUser && (

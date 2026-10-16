@@ -74,6 +74,7 @@ export const OFFICE_FEATURES: OfficeFeatureDef[] = [
   { key: 'payouts', label: 'Legacy Payout History', group: 'Economy', kind: 'tab' },
   { key: 'users', label: 'User Directory', group: 'People', kind: 'tab' },
   { key: 'leaders', label: 'Agencies', group: 'People', kind: 'tab' },
+  { key: 'tl-invites', label: 'TL Invitations', group: 'People', kind: 'tab' },
   {
     key: 'creator-ops',
     label: 'Creator Ops',

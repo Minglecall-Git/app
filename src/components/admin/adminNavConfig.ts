@@ -19,6 +19,7 @@ export type AdminSubTabKey =
   | 'email'
   | 'skus'
   | 'leaders'
+  | 'tl-invites'
   | 'payouts'
   | 'users'
   | 'cms'
@@ -75,7 +76,9 @@ export type AdminNavIconName =
   | 'Heart'
   | 'FlaskConical'
   | 'Shield'
-  | 'MessageSquare';
+  | 'MessageSquare'
+  | 'Link2'
+  | 'UserPlus';
 
 export interface AdminNavL2Item {
   id: string;
@@ -210,6 +213,14 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: 'Crown',
         kind: 'tab',
         buttonId: 'admin-leaders-tab-btn',
+      },
+      {
+        id: 'tl-invites',
+        label: 'TL Invitations',
+        icon: 'Link2',
+        kind: 'tab',
+        buttonId: 'admin-tl-invites-tab-btn',
+        title: 'Generate and manage single-use Team Leader invite links',
       },
       {
         id: 'creator-ops',

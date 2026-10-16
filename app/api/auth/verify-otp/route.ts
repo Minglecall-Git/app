@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
 import { getPasswordPolicyError } from '../../../../shared/passwordPolicy';
 import {
-  INVITE_HOST_ROLE,
-  applyAgencyInviteOnSignup,
-} from '../../../../lib/agencyInviteTokens';
+  applySignupInviteOnRegistration,
+  validateSignupInviteToken,
+} from '../../../../lib/signupInvites';
 import { createServiceClient, sanitizePublicSignupRole } from '../../../../lib/nextAuth';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 import { parseJsonBody } from '../../../../lib/nextRequest';
@@ -74,11 +74,20 @@ export async function POST(req: NextRequest) {
     const pendingInvite = pendingRedis?.inviteToken?.trim() || '';
     const inviteTokenToApply = pendingInvite || bodyInvite || '';
 
+    let inviteResolvedRole: string | null = null;
+    if (inviteTokenToApply) {
+      const validated = await validateSignupInviteToken(client, inviteTokenToApply);
+      if (!validated.ok) {
+        return authFail(400, validated.message, { code: validated.code });
+      }
+      inviteResolvedRole = validated.data.role;
+    }
+
     const pending = pendingRedis
       ? {
           passwordHash: pendingRedis.passwordHash,
           name: pendingRedis.name,
-          role: inviteTokenToApply ? INVITE_HOST_ROLE : pendingRedis.role,
+          role: inviteResolvedRole || pendingRedis.role,
           inviteToken: inviteTokenToApply || undefined,
         }
       : null;
@@ -93,7 +102,7 @@ export async function POST(req: NextRequest) {
     let safeRole = sanitizePublicSignupRole(
       pending?.role || verifyResult.metadata?.role
     );
-    if (inviteTokenToApply) safeRole = INVITE_HOST_ROLE;
+    if (inviteResolvedRole) safeRole = inviteResolvedRole;
 
     if (hasPassword && pending) {
       const policyError = getPasswordPolicyError(password);
@@ -105,7 +114,10 @@ export async function POST(req: NextRequest) {
         const adminRes = await updateUserPasswordAdmin(existing?.id || '', password, cleanEmail, {
           name: pending.name || verifyResult.metadata?.name,
           role: safeRole,
-          gender: genderFromPublicRole(safeRole),
+          gender:
+            safeRole === 'team_leader' || safeRole === 'agency_manager'
+              ? 'female'
+              : genderFromPublicRole(safeRole),
         });
         if (!adminRes.success) {
           return authFail(
@@ -162,12 +174,13 @@ export async function POST(req: NextRequest) {
       teamLeaderId?: string;
       agencyName?: string | null;
       role?: string;
+      kind?: string;
     } = {};
 
     if (inviteTokenToApply && resolvedAuthId) {
-      const applied = await applyAgencyInviteOnSignup(client, {
+      const applied = await applySignupInviteOnRegistration(client, {
         inviteToken: inviteTokenToApply,
-        hostProfileId: resolvedAuthId,
+        profileId: resolvedAuthId,
         displayName: pending?.name || verifyResult.metadata?.name,
         email: cleanEmail,
       });
@@ -179,6 +192,7 @@ export async function POST(req: NextRequest) {
         teamLeaderId: applied.teamLeaderId,
         agencyName: applied.agencyName,
         role: applied.role,
+        kind: applied.kind,
       };
     }
 

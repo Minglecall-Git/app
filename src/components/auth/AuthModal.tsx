@@ -39,6 +39,8 @@ interface AuthModalProps {
   defaultRole?: UserRole;
   /** Agency host invite from ?token= — locks signup as female_creator under that TL. */
   inviteToken?: string | null;
+  /** 'female_host' (default) or 'team_leader' from ?tl_invite=. */
+  inviteKind?: 'female_host' | 'team_leader' | null;
   onNavigateToTab?: (tab: string) => void;
 }
 
@@ -48,6 +50,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'login',
   defaultRole = 'male_user',
   inviteToken = null,
+  inviteKind = null,
   onNavigateToTab,
 }) => {
   const { completeAuthenticatedLogin, showToast, showToastKey, updateUserProfile } = useApp();
@@ -55,7 +58,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>(initialMode);
   const activeInviteToken =
     typeof inviteToken === 'string' && inviteToken.trim() ? inviteToken.trim() : '';
-  const inviteLockedRole: UserRole = 'female_creator';
+  const activeInviteKind: 'female_host' | 'team_leader' =
+    inviteKind === 'team_leader' ? 'team_leader' : 'female_host';
+  const inviteLockedRole: UserRole =
+    activeInviteKind === 'team_leader' ? 'team_leader' : 'female_creator';
 
   // Register Form State
   const [selectedRole, setSelectedRole] = useState<UserRole>(
@@ -113,7 +119,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setResetPassword('');
       setResetConfirmPassword('');
     }
-  }, [isOpen, initialMode, defaultRole, activeInviteToken]);
+  }, [isOpen, initialMode, defaultRole, activeInviteToken, inviteLockedRole]);
 
   // OTP Timer countdown (registration OTP screen + password reset)
   useEffect(() => {
@@ -773,15 +779,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             /* REGISTRATION FORM: ROLE SELECTION + ACCOUNT CREATION                      */
             /* ========================================================================= */
             <form onSubmit={handleStartRegistration} className="space-y-4">
-              {/* Role Selection — locked when joining via agency invite */}
+              {/* Role Selection — locked when joining via invite link */}
               {activeInviteToken ? (
-                <div className="rounded-2xl border border-amber-500/40 bg-amber-950/30 px-3 py-3 space-y-1">
-                  <p className="text-xs font-bold text-amber-200">
-                    Joining as Female Host via agency invite
+                <div
+                  className={`rounded-2xl border px-3 py-3 space-y-1 ${
+                    activeInviteKind === 'team_leader'
+                      ? 'border-indigo-500/40 bg-indigo-950/30'
+                      : 'border-amber-500/40 bg-amber-950/30'
+                  }`}
+                >
+                  <p
+                    className={`text-xs font-bold ${
+                      activeInviteKind === 'team_leader' ? 'text-indigo-200' : 'text-amber-200'
+                    }`}
+                  >
+                    {activeInviteKind === 'team_leader'
+                      ? 'Joining as Team Leader via admin invite'
+                      : 'Joining as Female Host via agency invite'}
                   </p>
-                  <p className="text-[11px] text-amber-100/70">
-                    Your account will be registered as a host under this agency. Gender is set to
-                    female automatically.
+                  <p
+                    className={`text-[11px] ${
+                      activeInviteKind === 'team_leader'
+                        ? 'text-indigo-100/70'
+                        : 'text-amber-100/70'
+                    }`}
+                  >
+                    {activeInviteKind === 'team_leader'
+                      ? 'Your account will be registered as a Team Leader / Agency. This invite link can only be used once.'
+                      : 'Your account will be registered as a host under this agency. Gender is set to female automatically.'}
                   </p>
                 </div>
               ) : (

@@ -121,6 +121,7 @@ import {
 } from './adminNavConfig';
 import { AdminOfficeRbacPage } from './AdminOfficeRbacPage';
 import { AdminCronSchedulePanel } from './AdminCronSchedulePanel';
+import { AdminTlInvitesPanel } from './AdminTlInvitesPanel';
 import { fetchOfficeRbacMe } from '../../services/officeRbacApi';
 import { hasOfficePermission } from '../../../shared/officeRbac/features';
 
@@ -2154,6 +2155,9 @@ export const AdminDashboard: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* TAB: Admin → Team Leader invite links */}
+      {activeSubTab === 'tl-invites' && <AdminTlInvitesPanel />}
 
       {/* TAB 2.5: Team Leaders & Agency Guild Management */}
       {activeSubTab === 'leaders' && (

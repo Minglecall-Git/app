@@ -1,10 +1,9 @@
 import { NextRequest } from 'next/server';
 import { getPasswordPolicyError } from '../../../../shared/passwordPolicy';
 import {
-  INVITE_HOST_ROLE,
-  applyAgencyInviteOnSignup,
-  validateInviteToken,
-} from '../../../../lib/agencyInviteTokens';
+  applySignupInviteOnRegistration,
+  validateSignupInviteToken,
+} from '../../../../lib/signupInvites';
 import { createServiceClient, sanitizePublicSignupRole } from '../../../../lib/nextAuth';
 import { enforceRateLimit } from '../../../../lib/nextRateLimit';
 import { parseJsonBody } from '../../../../lib/nextRequest';
@@ -64,15 +63,18 @@ export async function POST(req: NextRequest) {
     }
 
     let safeRole = sanitizePublicSignupRole(role);
+    let inviteKind: 'female_host' | 'team_leader' | null = null;
     if (inviteTokenRaw) {
-      const validated = await validateInviteToken(client, inviteTokenRaw);
+      const validated = await validateSignupInviteToken(client, inviteTokenRaw);
       if (!validated.ok) {
         return authFail(400, validated.message, { code: validated.code });
       }
-      safeRole = INVITE_HOST_ROLE;
+      safeRole = validated.data.role;
+      inviteKind = validated.data.kind;
     }
 
-    const gender = genderFromPublicRole(safeRole);
+    const gender =
+      inviteKind === 'team_leader' ? 'female' : genderFromPublicRole(safeRole);
     const displayName =
       typeof name === 'string' && name.trim() ? name.trim() : cleanEmail.split('@')[0] || 'User';
 
@@ -198,9 +200,9 @@ export async function POST(req: NextRequest) {
     let inviteAgencyName: string | null | undefined;
 
     if (inviteTokenRaw) {
-      const applied = await applyAgencyInviteOnSignup(client, {
+      const applied = await applySignupInviteOnRegistration(client, {
         inviteToken: inviteTokenRaw,
-        hostProfileId: authUserId,
+        profileId: authUserId,
         displayName,
         email: cleanEmail,
       });
@@ -208,6 +210,7 @@ export async function POST(req: NextRequest) {
         return authFail(400, applied.message, { code: applied.code });
       }
       safeRole = applied.role;
+      inviteKind = applied.kind;
       inviteTeamLeaderId = applied.teamLeaderId;
       inviteAgencyName = applied.agencyName;
     }
@@ -217,10 +220,12 @@ export async function POST(req: NextRequest) {
       authId: authUserId,
       userId: authUserId,
       role: safeRole,
-      gender: genderFromPublicRole(safeRole),
+      gender: inviteKind === 'team_leader' ? 'female' : genderFromPublicRole(safeRole),
       ...(inviteTeamLeaderId
         ? { teamLeaderId: inviteTeamLeaderId, agencyName: inviteAgencyName ?? null }
-        : {}),
+        : inviteKind === 'team_leader'
+          ? { agencyName: inviteAgencyName ?? null }
+          : {}),
       message: 'Auth account ready for OTP verification.',
     });
   } catch (err: unknown) {
