@@ -1258,7 +1258,18 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                           </span>
                           <span className="flex items-center space-x-1">
                             <span>{formatChatTime(m.createdAt || m.timestamp)}</span>
-                            <CheckCheck className={`w-3 h-3 ${m.isRead || isMine ? 'text-emerald-300' : 'text-slate-500'}`} />
+                            {isMine &&
+                              (m.isRead === true ? (
+                                <CheckCheck
+                                  className="w-3 h-3 text-emerald-400"
+                                  aria-label="Seen"
+                                />
+                              ) : (
+                                <Check
+                                  className="w-3 h-3 text-slate-400"
+                                  aria-label="Sent"
+                                />
+                              ))}
                           </span>
                         </div>
                       </div>

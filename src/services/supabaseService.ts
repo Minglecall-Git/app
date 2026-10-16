@@ -1549,7 +1549,7 @@ export function subscribeToRealtimeChat(
       }
     });
 
-    // Narrow UPDATE feed for read receipts only (not INSERT delivery)
+    // Read receipts: watch OUR outgoing messages flipping is_read (sender_id = me)
     if (onMessageUpdate && !updateChannel) {
       updateChannel = supabase
         .channel(`chat_read_${userId}`)
@@ -1559,7 +1559,7 @@ export function subscribeToRealtimeChat(
             event: 'UPDATE',
             schema: 'public',
             table: 'messages',
-            filter: `receiver_id=eq.${userId}`,
+            filter: `sender_id=eq.${userId}`,
           },
           (payload) => {
             const raw = payload.new as DbMessage;

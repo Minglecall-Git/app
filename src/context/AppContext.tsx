@@ -4459,12 +4459,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     text,
                     originalLanguage: 'English',
                     type: msgType as ChatMessage['type'],
-                    isRead: myUid === senderId,
+                    isRead: false,
                     createdAt: nowIso,
                     timestamp: nowIso,
                   },
                 ];
               });
+            }
+          } else if (data.type === 'chat:read') {
+            // Peer opened the thread — flip our outgoing ticks to seen
+            const ids = Array.isArray(data.updatedIds)
+              ? data.updatedIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+              : [];
+            const otherUserId = String(data.otherUserId || data.fromUserId || '').trim();
+            if (ids.length > 0) {
+              setChatMessages((prev) =>
+                prev.map((m) => (ids.includes(m.id) ? { ...m, isRead: true } : m))
+              );
+            } else if (otherUserId && currentUserIdRef.current) {
+              setChatMessages((prev) =>
+                prev.map((m) =>
+                  m.senderId === currentUserIdRef.current &&
+                  m.receiverId === otherUserId &&
+                  m.isRead !== true
+                    ? { ...m, isRead: true }
+                    : m
+                )
+              );
             }
           } else if (data.type === 'match:created') {
             const { senderId, receiverId, matchItem } = data;
@@ -6898,7 +6919,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           text,
           originalLanguage: 'English',
           type: msgType as ChatMessage['type'],
-          isRead: currentUserIdRef.current === senderId,
+          isRead: false,
           createdAt: nowIso,
           timestamp: nowIso,
         },
@@ -6990,7 +7011,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       originalLanguage: currentUser.spokenLanguages?.[0] || 'English',
       mediaUrl: durableMedia,
       type: optimisticType,
-      isRead: true,
+      // Sent but not seen — double green ticks only after receiver marks read
+      isRead: false,
       createdAt: new Date().toISOString(),
       timestamp: new Date().toISOString(),
     };
@@ -7378,7 +7400,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ otherUserId }),
-    }).catch((err) => console.warn('[markChatAsRead] API note:', err));
+    })
+      .then(async (res) => {
+        const json = await res.json().catch(() => null);
+        const updatedIds = Array.isArray(json?.data?.updatedIds)
+          ? json.data.updatedIds.map(String)
+          : idsToMark;
+        // Notify sender so their ticks turn double-green
+        void signalSendAsync({
+          type: 'chat:read',
+          toUserId: otherUserId,
+          receiverId: otherUserId,
+          fromUserId: currentUser.id,
+          otherUserId: currentUser.id,
+          updatedIds,
+        });
+      })
+      .catch((err) => console.warn('[markChatAsRead] API note:', err));
   };
 
   // Mark all unread messages as read (per-sender API calls)
@@ -7401,7 +7439,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ otherUserId }),
-      }).catch(() => {});
+      })
+        .then(async (res) => {
+          const json = await res.json().catch(() => null);
+          const updatedIds = Array.isArray(json?.data?.updatedIds)
+            ? json.data.updatedIds.map(String)
+            : [];
+          void signalSendAsync({
+            type: 'chat:read',
+            toUserId: otherUserId,
+            receiverId: otherUserId,
+            fromUserId: currentUser.id,
+            otherUserId: currentUser.id,
+            updatedIds,
+          });
+        })
+        .catch(() => {});
     }
 
     showToast('Chats Marked as Read', 'All new message indicators have been cleared.', 'info');
