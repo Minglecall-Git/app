@@ -62,6 +62,18 @@ export function normalizeUserProfile(p: any): UserProfile {
     kycDocuments: p.kycDocuments || p.kyc_documents || undefined,
     onlineStatus: p.onlineStatus || p.online_status || 'offline',
     role: p.role || 'female_creator',
+    accountStatus: (p.accountStatus || p.account_status || 'active') as
+      | 'active'
+      | 'suspended'
+      | 'closed_pending_payout'
+      | 'deactivated',
+    closedAt: p.closedAt || p.closed_at || undefined,
+    closedReason: p.closedReason || p.closed_reason || undefined,
+    isBanned: Boolean(p.isBanned ?? p.is_banned),
+    banReason: p.banReason || p.ban_reason || undefined,
+    bannedUntil: p.bannedUntil || p.banned_until || undefined,
+    bannedById: p.bannedById || p.banned_by_id || undefined,
+    bannedByRole: p.bannedByRole || p.banned_by_role || undefined,
     coinBalance: Number(p.coinBalance ?? p.coin_balance ?? 0),
     hourlyCoinRate: Number(p.hourlyCoinRate ?? p.hourly_coin_rate ?? 10),
     earningsCoins: Number(p.earningsCoins ?? p.earnings_coins ?? 0),

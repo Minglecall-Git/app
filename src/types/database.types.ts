@@ -66,6 +66,10 @@ export interface Database {
           banned_until: string | null;
           banned_by_id: string | null;
           banned_by_role: string | null;
+          account_status: 'active' | 'suspended' | 'closed_pending_payout' | 'deactivated';
+          closed_at: string | null;
+          closed_reason: string | null;
+          closed_by_id: string | null;
           team_leader_id: string | null;
           created_by_id: string | null;
           agency_name: string | null;
@@ -133,6 +137,10 @@ export interface Database {
           banned_until?: string | null;
           banned_by_id?: string | null;
           banned_by_role?: string | null;
+          account_status?: 'active' | 'suspended' | 'closed_pending_payout' | 'deactivated';
+          closed_at?: string | null;
+          closed_reason?: string | null;
+          closed_by_id?: string | null;
           team_leader_id?: string | null;
           created_by_id?: string | null;
           agency_name?: string | null;

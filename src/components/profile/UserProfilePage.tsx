@@ -762,7 +762,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
     }
 
     const ok = window.confirm(
-      'This permanently deletes your account, login, and profile data. This cannot be undone. Continue?'
+      'This closes your account and disables login. If you have earnings or payment history, financial records are retained for payout/audit. Continue?'
     );
     if (!ok) return;
 
@@ -786,7 +786,15 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         return;
       }
 
-      showToast('Account Deleted', 'Your account has been permanently removed.', 'success');
+      const mode = data?.data?.mode || data?.mode;
+      const soft = mode === 'soft_close';
+      const msg =
+        data?.message ||
+        data?.data?.message ||
+        (soft
+          ? 'Account closed. Login disabled. Pending payouts (if any) stay with admin/agency.'
+          : 'Your account has been permanently removed.');
+      showToast(soft ? 'Account Closed' : 'Account Deleted', msg, 'success');
       setDeleteConfirmPhrase('');
       setDeletePasswordInput('');
       try {
@@ -2431,8 +2439,9 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                     Delete Account
                   </h2>
                   <p className="text-xs text-app-muted mt-1 leading-relaxed">
-                    Permanently removes your profile, login, and associated data. This cannot be undone.
-                    You will not be able to sign in with this email afterward.
+                    Closes your account and disables login. Accounts with earnings or payment history are
+                    soft-closed so payout and audit records are preserved. New accounts with no financial
+                    history may be permanently removed.
                   </p>
                 </div>
               </div>

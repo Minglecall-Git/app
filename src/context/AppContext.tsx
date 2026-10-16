@@ -7639,21 +7639,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       const r2Count = data?.data?.r2DeletedCount;
       const warnCount = Array.isArray(data?.data?.warnings) ? data.data.warnings.length : 0;
-      const authDeleted = data?.data?.authDeleted !== false;
-      if (!authDeleted) {
+      const mode = data?.data?.mode;
+      const soft = mode === 'soft_close';
+      const authOk =
+        data?.data?.authDisabled === true ||
+        data?.data?.authDeleted === true ||
+        data?.data?.authDeleted !== false;
+      if (!authOk && !soft) {
         showToast(
           'User Deleted (Auth warning)',
           `Profile removed for ${target?.name || userId}, but Auth login may still work. Retry delete or run orphan Auth cleanup.`,
           'warning'
         );
-        // Profile is gone — still treat as success so delete modal can close
         return true;
       }
+      const status = data?.data?.accountStatus;
       showToast(
-        'User Deleted',
-        `Permanently removed ${target?.name || userId}${
-          typeof r2Count === 'number' ? ` (${r2Count} media objects purged)` : ''
-        }${warnCount ? ` — ${warnCount} warning(s)` : ''}. Auth login disabled.`,
+        soft ? 'Account Closed' : 'User Deleted',
+        soft
+          ? `${target?.name || userId} soft-closed (${status || 'deactivated'}). Login disabled; financial records preserved.${
+              warnCount ? ` — ${warnCount} warning(s)` : ''
+            }`
+          : `Permanently removed ${target?.name || userId}${
+              typeof r2Count === 'number' ? ` (${r2Count} media objects purged)` : ''
+            }${warnCount ? ` — ${warnCount} warning(s)` : ''}. Auth login disabled.`,
         warnCount ? 'info' : 'success'
       );
       return true;
@@ -8242,7 +8251,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       deletedUserIdsRef.current.add(creatorId);
 
       await refreshTeamLeaderCreators();
-      showToast('Host Deleted', `Permanently removed ${targetName} from your agency and the database.`, 'info');
+      const soft = data?.data?.mode === 'soft_close';
+      const status = data?.data?.accountStatus;
+      showToast(
+        soft ? 'Host Closed' : 'Host Deleted',
+        soft
+          ? `${targetName} soft-closed (${status || 'deactivated'}). Login disabled; earnings preserved for final payout.`
+          : `Permanently removed ${targetName} from your agency and the database.`,
+        'info'
+      );
       return true;
     } catch (e: any) {
       showToast('Delete Error', e.message || 'Failed to delete creator', 'error');

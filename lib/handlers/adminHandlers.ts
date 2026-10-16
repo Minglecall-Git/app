@@ -388,41 +388,57 @@ async function admin_POST_delete_user(ctx: ServerRuntime, auth: AuthOk, params: 
 
       const userName = existing?.name || userId;
 
-      let deleteResult = {
-        userId: String(userId),
-        authDeleted: false,
-        profileDeleted: false,
-        r2DeletedCount: 0,
-        warnings: [] as string[],
-      };
-
-      if (isSupabaseAdminConfigured()) {
-        const hard = await hardDeleteUserCompletely(String(userId));
-        deleteResult = {
-          userId: hard.userId,
-          authDeleted: hard.authDeleted,
-          profileDeleted: hard.profileDeleted,
-          r2DeletedCount: hard.r2DeletedCount,
-          warnings: hard.warnings,
-        };
-        if (!hard.success || !hard.profileDeleted || !hard.authDeleted) {
-          return err(500, {
-            success: false,
-            error:
-              hard.error ||
-              (!hard.authDeleted
-                ? 'Auth user was not deleted — account may still be able to sign in. Retry delete.'
-                : 'Failed to delete profile'),
-            data: deleteResult,
-          });
-        }
-      } else {
-        deleteResult.warnings.push('Supabase admin not configured; deleted from server memory only.');
-        deleteResult.profileDeleted = true;
-        deleteResult.authDeleted = false;
+      if (!isSupabaseAdminConfigured()) {
         return err(503, {
           success: false,
-          error: 'Supabase admin is not configured; cannot safely delete Auth + profile.',
+          error: 'Supabase admin is not configured; cannot safely close or delete Auth + profile.',
+          data: {
+            userId: String(userId),
+            authDeleted: false,
+            profileDeleted: false,
+            r2DeletedCount: 0,
+            warnings: [],
+          },
+        });
+      }
+
+      const hard = await hardDeleteUserCompletely(String(userId), {
+        actorRole: 'admin',
+        actorUserId: auth.profileId || null,
+        reason: 'Account closed by admin',
+      });
+
+      const deleteResult = {
+        userId: hard.userId,
+        mode: hard.mode || null,
+        accountStatus: hard.accountStatus || null,
+        authDeleted: hard.authDeleted,
+        authDisabled: hard.authDisabled ?? hard.authDeleted,
+        profileDeleted: hard.profileDeleted,
+        r2DeletedCount: hard.r2DeletedCount,
+        hasFinancialHistory: hard.hasFinancialHistory ?? false,
+        unpaid: hard.unpaid || null,
+        warnings: hard.warnings,
+        message: hard.message || null,
+      };
+
+      const softOk =
+        hard.success &&
+        hard.mode === 'soft_close' &&
+        Boolean(hard.authDisabled || hard.authDeleted);
+      const hardOk =
+        hard.success &&
+        hard.mode !== 'soft_close' &&
+        Boolean(hard.profileDeleted && (hard.authDeleted || hard.authDisabled));
+
+      if (!softOk && !hardOk) {
+        return err(500, {
+          success: false,
+          error:
+            hard.error ||
+            (!hard.authDeleted && !hard.authDisabled
+              ? 'Auth was not disabled — account may still be able to sign in. Retry.'
+              : 'Failed to close or delete account'),
           data: deleteResult,
         });
       }
@@ -435,14 +451,21 @@ async function admin_POST_delete_user(ctx: ServerRuntime, auth: AuthOk, params: 
       ctx.broadcastAll({
         type: 'users:deleted',
         userId,
+        mode: hard.mode,
+        accountStatus: hard.accountStatus,
         users: ctx.getFormattedUsers(),
       });
       ctx.broadcastPresence();
       ctx.broadcastUsers();
 
+      const soft = hard.mode === 'soft_close';
       return ok({
         success: true,
-        message: `User ${userName} was permanently deleted from database and system.`,
+        message:
+          hard.message ||
+          (soft
+            ? `User ${userName} was soft-closed (financial records preserved).`
+            : `User ${userName} was permanently deleted from database and system.`),
         data: deleteResult,
       });
     } catch (e: any) {

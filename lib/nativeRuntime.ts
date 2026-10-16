@@ -276,6 +276,13 @@ function createNativeRuntime(): ServerRuntime {
             emailMap.set(cleanEmail, normalized);
           }
           if (deletedUserTombstones.has(normalized.id)) continue;
+          const status = String(
+            (normalized as any).accountStatus || (p as any).account_status || 'active'
+          ).toLowerCase();
+          // Soft-closed stay in DB for payouts/audit but not in live directory
+          if (status === 'closed_pending_payout' || status === 'deactivated') {
+            continue;
+          }
           serverUsers.set(normalized.id, { ...normalized, onlineStatus: 'offline' });
           presenceMap.set(normalized.id, 'offline');
         }

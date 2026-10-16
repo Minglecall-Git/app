@@ -114,6 +114,13 @@ export function mapProfileRow(p: Record<string, unknown> | null) {
     isBanned: Boolean(p.is_banned),
     banReason: p.ban_reason || undefined,
     bannedUntil: p.banned_until || undefined,
+    accountStatus: (p.account_status || 'active') as
+      | 'active'
+      | 'suspended'
+      | 'closed_pending_payout'
+      | 'deactivated',
+    closedAt: p.closed_at || undefined,
+    closedReason: p.closed_reason || undefined,
     agencyName: p.agency_name || undefined,
     teamLeaderId: p.team_leader_id || p.created_by_id || undefined,
     createdById: p.created_by_id || p.team_leader_id || undefined,

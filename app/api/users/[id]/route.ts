@@ -16,7 +16,12 @@ export async function DELETE(
     if (!auth.ok) { return jsonErr(auth.status, auth.error.message, auth.error.code); }
     const { id } = await ctx.params;
     const runtime = await getServerRuntime();
-    return toResponse(await handleDeleteUserById(runtime, id));
+    return toResponse(
+      await handleDeleteUserById(runtime, id, {
+        role: 'admin',
+        userId: auth.profileId || null,
+      })
+    );
   } catch (err: any) {
     console.error('[next DELETE /api/users/:id]', err);
     return jsonErr(500, err?.message || 'Failed', 'SERVER_ERROR');

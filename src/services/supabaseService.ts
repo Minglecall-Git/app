@@ -205,6 +205,9 @@ export function mapDbProfileToUserProfile(db: DbProfile): UserProfile {
     bannedUntil: (db as any).banned_until || undefined,
     bannedById: (db as any).banned_by_id || undefined,
     bannedByRole: (db as any).banned_by_role || undefined,
+    accountStatus: ((db as any).account_status || 'active') as UserProfile['accountStatus'],
+    closedAt: (db as any).closed_at || undefined,
+    closedReason: (db as any).closed_reason || undefined,
   };
 }
 
@@ -368,6 +371,7 @@ export async function fetchProfilesPageFromSupabase(opts?: {
       .select(DISCOVERY_PROFILE_SELECT)
       // Treat NULL is_banned as not banned (eq.false alone drops legacy/null rows)
       .or('is_banned.eq.false,is_banned.is.null')
+      .or('account_status.is.null,account_status.eq.active')
       .order('created_at', { ascending: false })
       .limit(limit);
 

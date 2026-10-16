@@ -643,33 +643,53 @@ export async function handleTeamleaderDeleteCreator(
     }
     const creatorName = existing?.name || 'Female Host';
 
-    let deleteResult = {
-      userId: String(creatorId),
-      authDeleted: false,
-      profileDeleted: false,
-      r2DeletedCount: 0,
-      warnings: [] as string[],
+    if (!isSupabaseAdminConfigured()) {
+      return err(503, {
+        success: false,
+        error: 'Supabase admin is not configured; cannot safely close creator account.',
+        data: {
+          userId: String(creatorId),
+          authDeleted: false,
+          profileDeleted: false,
+          warnings: [],
+        },
+      });
+    }
+
+    // Creators/hosts always soft-close when financial history exists (forced soft-close for agency safety).
+    const hard = await hardDeleteUserCompletely(String(creatorId), {
+      actorRole: 'team_leader',
+      actorUserId: auth.profileId || null,
+      reason: 'Host removed by team leader',
+      forceSoftClose: true,
+    });
+
+    const deleteResult = {
+      userId: hard.userId,
+      mode: hard.mode || 'soft_close',
+      accountStatus: hard.accountStatus || null,
+      authDeleted: hard.authDeleted,
+      authDisabled: hard.authDisabled ?? hard.authDeleted,
+      profileDeleted: hard.profileDeleted,
+      r2DeletedCount: hard.r2DeletedCount,
+      hasFinancialHistory: hard.hasFinancialHistory ?? true,
+      unpaid: hard.unpaid || null,
+      warnings: hard.warnings,
+      message: hard.message || null,
     };
 
-    if (isSupabaseAdminConfigured()) {
-      const hard = await hardDeleteUserCompletely(String(creatorId));
-      deleteResult = {
-        userId: hard.userId,
-        authDeleted: hard.authDeleted,
-        profileDeleted: hard.profileDeleted,
-        r2DeletedCount: hard.r2DeletedCount,
-        warnings: hard.warnings,
-      };
-      if (!hard.profileDeleted) {
-        return err(500, {
-          success: false,
-          error: hard.error || 'Failed to delete creator profile',
-          data: deleteResult,
-        });
-      }
-    } else {
-      deleteResult.warnings.push('Supabase admin not configured; deleted from server memory only.');
-      deleteResult.profileDeleted = true;
+    const okClose =
+      hard.success &&
+      (hard.mode === 'soft_close'
+        ? Boolean(hard.authDisabled || hard.authDeleted)
+        : Boolean(hard.profileDeleted && (hard.authDeleted || hard.authDisabled)));
+
+    if (!okClose) {
+      return err(500, {
+        success: false,
+        error: hard.error || 'Failed to close creator account',
+        data: deleteResult,
+      });
     }
 
     ctx.purgeUserRuntimeState(String(creatorId));
@@ -677,14 +697,21 @@ export async function handleTeamleaderDeleteCreator(
     ctx.broadcastAll({
       type: 'users:deleted',
       userId: creatorId,
+      mode: hard.mode,
+      accountStatus: hard.accountStatus,
       users: ctx.getFormattedUsers(),
     });
     ctx.broadcastPresence();
     ctx.broadcastUsers();
 
+    const soft = hard.mode === 'soft_close';
     return ok({
       success: true,
-      message: `Host ${creatorName} was permanently deleted from your agency and the platform.`,
+      message:
+        hard.message ||
+        (soft
+          ? `Host ${creatorName} was soft-closed. Login disabled; earnings/settlements preserved for final payout.`
+          : `Host ${creatorName} was permanently deleted from your agency and the platform.`),
       data: deleteResult,
       runtime: 'next-native',
     });

@@ -687,17 +687,43 @@ export async function fetchProfilesAdmin(opts?: {
 }
 
 /**
- * Check if a profile is currently suspended/banned with expiration support
+ * Check if a profile is currently suspended/banned/closed with expiration support.
+ * Soft-closed accounts (closed_pending_payout | deactivated) cannot log in.
  */
 export function isProfileBanned(profile: any): { isBanned: boolean; message?: string; bannedUntil?: string } {
-  if (!profile || (!profile.is_banned && !profile.isBanned)) {
+  if (!profile) {
+    return { isBanned: false };
+  }
+
+  const accountStatus = String(
+    profile.account_status || profile.accountStatus || 'active'
+  ).toLowerCase();
+
+  if (accountStatus === 'closed_pending_payout') {
+    return {
+      isBanned: true,
+      message:
+        'This account has been closed and is pending final payout review. Login is disabled. Contact support or your agency.',
+    };
+  }
+  if (accountStatus === 'deactivated') {
+    return {
+      isBanned: true,
+      message: 'This account has been deactivated. Login is disabled.',
+    };
+  }
+  const flaggedBanned = Boolean(profile.is_banned || profile.isBanned);
+  if (!flaggedBanned && accountStatus === 'active') {
+    return { isBanned: false };
+  }
+  if (!flaggedBanned && accountStatus !== 'suspended') {
     return { isBanned: false };
   }
 
   const bannedUntil = profile.banned_until || profile.bannedUntil;
   if (bannedUntil) {
     const expiryTime = new Date(bannedUntil).getTime();
-    if (Date.now() > expiryTime) {
+    if (Date.now() > expiryTime && accountStatus !== 'suspended') {
       // Ban has expired! Return unbanned
       return { isBanned: false };
     }

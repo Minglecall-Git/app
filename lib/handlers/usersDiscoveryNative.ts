@@ -104,6 +104,7 @@ export async function handleGetUsers(
       .from('profiles')
       .select(PUBLIC_PROFILE_SELECT)
       .or('is_banned.is.null,is_banned.eq.false')
+      .or('account_status.is.null,account_status.eq.active')
       .order('created_at', { ascending: false })
       .limit(limit);
 

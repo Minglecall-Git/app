@@ -237,6 +237,23 @@ export async function deletePresence(userId: string): Promise<void> {
   }
 }
 
+/** Best-effort clear of presence lease + profile cache (closure / hard wipe). */
+export async function clearUserRedisState(userId: string): Promise<void> {
+  const id = String(userId || '').trim();
+  if (!id) return;
+  const client = getRedis();
+  if (!client) return;
+  try {
+    await client.del(presenceKey(id));
+    await client.del(profileCacheKey(id));
+  } catch (err: unknown) {
+    console.warn(
+      '[Redis] clearUserRedisState failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 export async function getPresence(userId: string): Promise<PresenceStatus | null> {
   const client = getRedis();
   if (!client || !userId) return null;

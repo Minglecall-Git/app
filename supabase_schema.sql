@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     banned_until TIMESTAMPTZ,
     banned_by_id TEXT,
     banned_by_role TEXT,
+    -- Soft-close lifecycle: hard-delete only when zero financial history
+    account_status TEXT NOT NULL DEFAULT 'active'
+      CHECK (account_status IN (
+        'active',
+        'suspended',
+        'closed_pending_payout',
+        'deactivated'
+      )),
+    closed_at TIMESTAMPTZ,
+    closed_reason TEXT,
+    closed_by_id TEXT,
     team_leader_id TEXT,
     created_by_id TEXT,
     agency_name TEXT,
@@ -101,6 +112,30 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS ban_reason TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS banned_until TIMESTAMPTZ;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS banned_by_id TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS banned_by_role TEXT;
+-- Soft-close / deactivation lifecycle (hard-delete only when zero financial history)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS closed_reason TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS closed_by_id TEXT;
+DO $$
+BEGIN
+  ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_account_status_check;
+  ALTER TABLE public.profiles
+    ADD CONSTRAINT profiles_account_status_check
+    CHECK (account_status IN (
+      'active',
+      'suspended',
+      'closed_pending_payout',
+      'deactivated'
+    ));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+COMMENT ON COLUMN public.profiles.account_status IS
+  'Account lifecycle: active | suspended | closed_pending_payout (soft-close with unpaid earnings) | deactivated (soft-close, finance retained). Hard-delete only for zero-finance users.';
+CREATE INDEX IF NOT EXISTS idx_profiles_account_status
+  ON public.profiles (account_status)
+  WHERE account_status IS DISTINCT FROM 'active';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS team_leader_id TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_by_id TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS agency_name TEXT;
@@ -145,6 +180,10 @@ CREATE INDEX IF NOT EXISTS idx_profiles_created_at ON public.profiles(created_at
 CREATE INDEX IF NOT EXISTS idx_profiles_discovery_banned_created
   ON public.profiles(created_at DESC)
   WHERE is_banned IS DISTINCT FROM true;
+CREATE INDEX IF NOT EXISTS idx_profiles_discovery_active_created
+  ON public.profiles(created_at DESC)
+  WHERE (account_status IS NULL OR account_status = 'active')
+    AND is_banned IS DISTINCT FROM true;
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 -- Soft uniqueness for registrations (case-insensitive). Skips quietly if duplicates already exist.
 DO $$

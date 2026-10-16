@@ -135,6 +135,10 @@ export interface UserProfile {
   bannedUntil?: string; // ISO timestamp for temporary ban expiration (null if unbanned)
   bannedById?: string; // ID of Team Leader or Admin who issued the ban
   bannedByRole?: string; // 'team_leader' | 'admin'
+  /** Soft-close lifecycle: active | suspended | closed_pending_payout | deactivated */
+  accountStatus?: 'active' | 'suspended' | 'closed_pending_payout' | 'deactivated';
+  closedAt?: string;
+  closedReason?: string;
 
   // Recent Moments / Feed
   moments?: CreatorMoment[];

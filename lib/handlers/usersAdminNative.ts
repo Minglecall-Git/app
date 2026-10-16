@@ -7,6 +7,30 @@ import {
 } from '../../server/supabaseAdmin';
 import { err, ok, type HandlerResult } from './handlerResult';
 
+function closureSucceeded(hard: Awaited<ReturnType<typeof hardDeleteUserCompletely>>): boolean {
+  if (!hard.success) return false;
+  if (hard.mode === 'soft_close') {
+    return Boolean(hard.authDisabled || hard.authDeleted);
+  }
+  return Boolean(hard.profileDeleted && (hard.authDeleted || hard.authDisabled));
+}
+
+function closurePayload(hard: Awaited<ReturnType<typeof hardDeleteUserCompletely>>) {
+  return {
+    userId: hard.userId,
+    mode: hard.mode || (hard.profileDeleted ? 'hard_wipe' : 'soft_close'),
+    accountStatus: hard.accountStatus || null,
+    authDeleted: hard.authDeleted,
+    authDisabled: hard.authDisabled ?? hard.authDeleted,
+    profileDeleted: hard.profileDeleted,
+    r2DeletedCount: hard.r2DeletedCount,
+    hasFinancialHistory: hard.hasFinancialHistory ?? false,
+    unpaid: hard.unpaid || null,
+    warnings: hard.warnings,
+    message: hard.message || null,
+  };
+}
+
 /** POST /api/users/me/delete */
 export async function handleUsersMeDelete(
   ctx: ServerRuntime,
@@ -78,21 +102,22 @@ export async function handleUsersMeDelete(
       });
     }
 
-    const hard = await hardDeleteUserCompletely(profileId);
-    if (!hard.success || !hard.profileDeleted || !hard.authDeleted) {
+    const hard = await hardDeleteUserCompletely(profileId, {
+      actorRole: 'self',
+      actorUserId: profileId,
+      reason: 'Account closed by user',
+    });
+
+    if (!closureSucceeded(hard)) {
       return err(500, {
         success: false,
         error: {
           message:
             hard.error ||
-            'Could not fully delete your account (Auth or profile). Please contact support.',
+            'Could not close or delete your account. Please contact support.',
           code: 'DELETE_INCOMPLETE',
         },
-        data: {
-          authDeleted: hard.authDeleted,
-          profileDeleted: hard.profileDeleted,
-          warnings: hard.warnings,
-        },
+        data: closurePayload(hard),
       });
     }
 
@@ -104,20 +129,22 @@ export async function handleUsersMeDelete(
     ctx.broadcastAll({
       type: 'users:deleted',
       userId: profileId,
+      mode: hard.mode,
+      accountStatus: hard.accountStatus,
       users: ctx.getFormattedUsers(),
     });
     ctx.broadcastPresence();
     ctx.broadcastUsers();
 
+    const soft = hard.mode === 'soft_close';
     return ok({
       success: true,
-      message: 'Your account has been permanently deleted.',
-      data: {
-        userId: hard.userId,
-        authDeleted: hard.authDeleted,
-        profileDeleted: hard.profileDeleted,
-        r2DeletedCount: hard.r2DeletedCount,
-      },
+      message:
+        hard.message ||
+        (soft
+          ? 'Your account has been closed. Login is disabled; financial records were preserved.'
+          : 'Your account has been permanently deleted.'),
+      data: closurePayload(hard),
       runtime: 'next-native',
     });
   } catch (e: any) {
@@ -155,7 +182,8 @@ export async function handleUsersSyncAll(
 /** DELETE /api/users/:id */
 export async function handleDeleteUserById(
   ctx: ServerRuntime,
-  userId: string
+  userId: string,
+  actor?: { role?: string; userId?: string | null }
 ): Promise<HandlerResult> {
   try {
     if (!userId) {
@@ -173,59 +201,62 @@ export async function handleDeleteUserById(
 
     const userName = existing?.name || userId;
 
-    let deleteResult = {
-      userId: String(userId),
-      authDeleted: false,
-      profileDeleted: false,
-      r2DeletedCount: 0,
-      warnings: [] as string[],
-    };
-
-    if (isSupabaseAdminConfigured()) {
-      const hard = await hardDeleteUserCompletely(String(userId));
-      deleteResult = {
-        userId: hard.userId,
-        authDeleted: hard.authDeleted,
-        profileDeleted: hard.profileDeleted,
-        r2DeletedCount: hard.r2DeletedCount,
-        warnings: hard.warnings,
-      };
-      if (!hard.success || !hard.profileDeleted || !hard.authDeleted) {
-        return err(500, {
-          success: false,
-          error:
-            hard.error ||
-            (!hard.authDeleted
-              ? 'Auth user was not deleted — account may still be able to sign in. Retry delete.'
-              : 'Failed to delete profile'),
-          data: deleteResult,
-        });
-      }
-    } else {
+    if (!isSupabaseAdminConfigured()) {
       return err(503, {
         success: false,
-        error: 'Supabase admin is not configured; cannot safely delete Auth + profile.',
-        data: deleteResult,
+        error: 'Supabase admin is not configured; cannot safely close or delete Auth + profile.',
+        data: {
+          userId: String(userId),
+          authDeleted: false,
+          profileDeleted: false,
+          r2DeletedCount: 0,
+          warnings: [],
+        },
+      });
+    }
+
+    const hard = await hardDeleteUserCompletely(String(userId), {
+      actorRole: (actor?.role as any) || 'admin',
+      actorUserId: actor?.userId || null,
+      reason: `Account closed by ${actor?.role || 'admin'}`,
+    });
+
+    if (!closureSucceeded(hard)) {
+      return err(500, {
+        success: false,
+        error:
+          hard.error ||
+          (!hard.authDeleted && !hard.authDisabled
+            ? 'Auth was not disabled — account may still be able to sign in. Retry.'
+            : 'Failed to close or delete account'),
+        data: closurePayload(hard),
       });
     }
 
     ctx.purgeUserRuntimeState(String(userId));
-    if (deleteResult.userId && deleteResult.userId !== String(userId)) {
-      ctx.purgeUserRuntimeState(String(deleteResult.userId));
+    if (hard.userId && hard.userId !== String(userId)) {
+      ctx.purgeUserRuntimeState(String(hard.userId));
     }
 
     ctx.broadcastAll({
       type: 'users:deleted',
       userId,
+      mode: hard.mode,
+      accountStatus: hard.accountStatus,
       users: ctx.getFormattedUsers(),
     });
     ctx.broadcastPresence();
     ctx.broadcastUsers();
 
+    const soft = hard.mode === 'soft_close';
     return ok({
       success: true,
-      message: `User ${userName} (${userId}) was permanently deleted from database and system.`,
-      data: deleteResult,
+      message:
+        hard.message ||
+        (soft
+          ? `User ${userName} (${userId}) was soft-closed (financial records preserved).`
+          : `User ${userName} (${userId}) was permanently deleted from database and system.`),
+      data: closurePayload(hard),
       runtime: 'next-native',
     });
   } catch (e: any) {
