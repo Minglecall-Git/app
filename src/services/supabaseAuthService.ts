@@ -9,6 +9,7 @@ import {
   seedAccessToken,
   expectAuthSessionSoon,
 } from '../utils/apiClient';
+import { setRegistrationCompleteLatch } from '../utils/registrationComplete';
 import {
   setStoredActiveSessionId,
   clearStoredActiveSessionId,
@@ -1265,38 +1266,57 @@ export async function completeUserProfileOnboarding(
   };
 
   try {
-    const res = await authFetch('/api/supabase/update-profile', {
+    // Dedicated endpoint — forces is_onboarded=true in Postgres and returns saved row
+    const res = await authFetch('/api/auth/complete-onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...safeUpdates,
+        role: lockedRole,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      const persisted: UserProfile = {
+        ...updatedProfile,
+        ...(data.user || {}),
+        role: lockedRole,
+        gender: lockedGender,
+        isOnboarded: true,
+        agreedToTerms: true,
+        agreedToAdultTerms: Boolean(
+          data.user?.agreedToAdultTerms ?? safeUpdates.agreedToAdultTerms
+        ),
+        agreedToHostTerms: Boolean(
+          data.user?.agreedToHostTerms ?? safeUpdates.agreedToHostTerms
+        ),
+      };
+      setRegistrationCompleteLatch(persisted.id);
+      if (persisted.authId) setRegistrationCompleteLatch(persisted.authId);
+      return { success: true, updatedProfile: persisted };
+    }
+
+    // Legacy fallback if complete-onboarding route is unavailable
+    const fallbackRes = await authFetch('/api/supabase/update-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: currentUser.id,
-        updates: safeUpdates,
+        updates: { ...safeUpdates, isOnboarded: true },
       }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      // Fallback: authenticated upsert (also strips privileged fields server-side for non-admins)
-      const upsertRes = await authFetch('/api/supabase/upsert-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedProfile),
-      });
-      const upsertData = await upsertRes.json().catch(() => ({}));
-      if (!upsertRes.ok || !upsertData.success) {
-        return {
-          success: false,
-          error: userSafeAuthError(
-            data.error || upsertData.error,
-            'Could not save your profile. Please try again.'
-          ),
-        };
-      }
-      const persisted = upsertData.user
-        ? { ...updatedProfile, ...upsertData.user, isOnboarded: true, role: lockedRole }
-        : updatedProfile;
-      return { success: true, updatedProfile: persisted };
+    const fallbackData = await fallbackRes.json().catch(() => ({}));
+    if (!fallbackRes.ok || !fallbackData.success) {
+      return {
+        success: false,
+        error: userSafeAuthError(
+          data.error || fallbackData.error,
+          'Could not save your profile. Please try again.'
+        ),
+      };
     }
-
+    setRegistrationCompleteLatch(updatedProfile.id);
+    if (updatedProfile.authId) setRegistrationCompleteLatch(updatedProfile.authId);
     return { success: true, updatedProfile };
   } catch (err) {
     console.error('Error completing onboarding profile:', err);

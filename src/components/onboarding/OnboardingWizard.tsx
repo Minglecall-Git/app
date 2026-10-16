@@ -16,6 +16,7 @@ import {
 import { UserProfile, OnboardingFormData, getUserRoleLabel, getFemaleRoleMark } from '../../types';
 import { completeUserProfileOnboarding } from '../../services/supabaseAuthService';
 import { uploadMediaDirectlyToR2, isPersistableMediaUrl } from '../../utils/r2Storage';
+import { setRegistrationCompleteLatch } from '../../utils/registrationComplete';
 import { getAllowedCountries, findCountryByCodeOrName, CountryItem } from '../../utils/countries';
 import { useApp } from '../../context/AppContext';
 import { DatePicker } from '../common/DatePicker';
@@ -505,9 +506,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       const result = await completeUserProfileOnboarding(user, lockedForm);
       if (result.success && result.updatedProfile) {
         clearOnboardingDraft(user.id);
-        updateUserProfile(result.updatedProfile.id, result.updatedProfile);
+        const finished = { ...result.updatedProfile, isOnboarded: true as const };
+        setRegistrationCompleteLatch(finished.id);
+        if (finished.authId) setRegistrationCompleteLatch(finished.authId);
+        updateUserProfile(finished.id, finished);
         showToast('Registration Complete! 🎉', 'Your profile has been saved.', 'success');
-        onComplete(result.updatedProfile);
+        onComplete(finished);
       } else {
         const msg = result.error || 'Failed to complete profile registration. Please try again.';
         setValidationError(msg);

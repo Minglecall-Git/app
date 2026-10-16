@@ -318,7 +318,12 @@ const MainApp: React.FC = () => {
           <OnboardingWizard
             user={currentUser}
             onComplete={(updated) => {
-              updateUserProfile(updated.id, updated);
+              // Force local completion immediately so the gate lifts before any async save race
+              updateUserProfile(updated.id, {
+                ...updated,
+                isOnboarded: true,
+                agreedToTerms: true,
+              });
               setIsOnboardingOpen(false);
             }}
             onCancel={() => {
@@ -538,7 +543,11 @@ const MainApp: React.FC = () => {
           <OnboardingWizard
             user={currentUser}
             onComplete={(updated) => {
-              updateUserProfile(updated.id, updated);
+              updateUserProfile(updated.id, {
+                ...updated,
+                isOnboarded: true,
+                agreedToTerms: true,
+              });
               setIsOnboardingOpen(false);
             }}
             onCancel={() => {

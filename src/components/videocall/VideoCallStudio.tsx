@@ -47,7 +47,7 @@ interface VideoCallStudioProps {
   onOpenStore: () => void;
 }
 
-export const VideoCallStudio: React.FC<VideoCallStudioProps> = ({ onOpenStore: _onOpenStore }) => {
+export const VideoCallStudio: React.FC<VideoCallStudioProps> = ({ onOpenStore }) => {
   const {
     activeCall,
     acceptCall,
@@ -535,19 +535,34 @@ export const VideoCallStudio: React.FC<VideoCallStudioProps> = ({ onOpenStore: _
         if (!isMounted || abortController.signal.aborted) return;
 
         if (!tokenRes.ok) {
+          const errCode = String(data?.error?.code || data?.code || '');
+          const errMsg =
+            (typeof data?.error === 'string' ? data.error : null) ||
+            (typeof data?.error?.message === 'string' ? data.error.message : null);
           const detailReason =
             data?.detail?.reason === 'call_row_missing'
               ? ' Call was not saved — check /api/calls/sync on the server.'
               : '';
+          const needsTopUp =
+            errCode === 'INSUFFICIENT_COINS' ||
+            /insufficient|balance|credits|coins/i.test(String(errMsg || ''));
           const msg =
-            (typeof data?.error === 'string' ? data.error : null) ||
+            errMsg ||
             (tokenRes.status === 403
-              ? 'Not authorized for this call room'
+              ? errCode === 'NOT_CALL_MEMBER'
+                ? 'You are not a participant in this call.'
+                : needsTopUp
+                  ? 'Not enough coins to start this call. Please top up your wallet.'
+                  : 'Not authorized for this call room'
               : tokenRes.status === 404
-              ? 'Call room not found'
-              : tokenRes.status === 409
-              ? 'This call has already ended'
-              : 'Failed to get LiveKit token');
+                ? 'Call room not found'
+                : tokenRes.status === 409
+                  ? 'This call has already ended'
+                  : 'Failed to get LiveKit token');
+          if (needsTopUp && onOpenStore) {
+            showToast('Top up required', msg, 'warning');
+            onOpenStore();
+          }
           await enablePreviewOnly(msg + detailReason);
           return;
         }

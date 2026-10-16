@@ -53,6 +53,7 @@ import type { AppNavItem } from '../../shared/appNav';
 import { mapNavRow, mergeNavWithDefaults } from '../../shared/appNav';
 import {
   authFetch,
+  apiFetch,
   getAccessToken,
   waitForAccessToken,
   seedAccessToken,
@@ -1205,6 +1206,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               if (typeof me.coinBalance === 'number') profile.coinBalance = me.coinBalance;
               if (typeof me.earningsCoins === 'number') profile.earningsCoins = me.earningsCoins;
               if (me.email) profile.email = me.email;
+              if (me.isOnboarded === true) profile.isOnboarded = true;
+              if (me.agreedToAdultTerms === true) profile.agreedToAdultTerms = true;
+              if (me.agreedToHostTerms === true) profile.agreedToHostTerms = true;
+              if (me.agreedToTerms === true) profile.agreedToTerms = true;
+              profile = withRegistrationCompleteFlag(profile);
             }
           } catch (walletErr) {
             console.warn('[Auth Rehydrate] wallet hydrate notice:', walletErr);
@@ -4182,6 +4188,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                       : Array.isArray(prior?.galleryVideos) && prior!.galleryVideos!.length > 0
                         ? prior!.galleryVideos!
                         : incomingWsVideos || prior?.galleryVideos || [],
+                  // Never let a stale broadcast clear a finished registration
+                  isOnboarded: Boolean(prior?.isOnboarded) || Boolean(incoming.isOnboarded),
+                  agreedToAdultTerms:
+                    Boolean(prior?.agreedToAdultTerms) || Boolean(incoming.agreedToAdultTerms),
+                  agreedToHostTerms:
+                    Boolean(prior?.agreedToHostTerms) || Boolean(incoming.agreedToHostTerms),
                   // Presence map owns status — ignore sticky busy on user broadcast payloads
                   onlineStatus: prior?.onlineStatus || 'offline',
                 };
@@ -7405,20 +7417,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return false;
   };
 
-  // Load LiveKit status from server env on mount (never accept secrets from the browser).
+  // Public LiveKit probe for all roles — /api/livekit/config is admin-only and 403s male/host users.
   useEffect(() => {
-    authFetch('/api/livekit/config')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data) return;
+    let cancelled = false;
+    apiFetch('/api/livekit/status')
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data = await res.json().catch(() => null);
+        if (!data || cancelled) return;
         setSystemSettings((prev) => ({
           ...prev,
-          livekitApiKey: data.configured ? '••••••••' : '',
-          livekitApiSecret: data.configured ? '••••••••' : '',
+          livekitApiKey: data.configured ? '••••••••' : prev.livekitApiKey || '',
+          livekitApiSecret: data.configured ? '••••••••' : prev.livekitApiSecret || '',
           livekitWsUrl: data.wsUrl || prev.livekitWsUrl || '',
         }));
       })
-      .catch(() => { });
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Admin Actions
@@ -7478,8 +7495,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     wsUrl?: string;
   }): Promise<boolean> => {
     try {
-      const res = await authFetch('/api/livekit/config');
+      // Admin gets detailed env flags; everyone else uses the public status probe.
+      const me = usersRef.current.find((u) => u.id === currentUserIdRef.current);
+      const isAdmin = me?.role === 'admin';
+      const res = isAdmin
+        ? await authFetch('/api/livekit/config')
+        : await apiFetch('/api/livekit/status');
       const data = await res.json().catch(() => ({}));
+
+      if (res.status === 403) {
+        // Fall back to public probe so non-admin callers never hard-fail
+        const statusRes = await apiFetch('/api/livekit/status');
+        const statusData = await statusRes.json().catch(() => ({}));
+        if (statusRes.ok) {
+          setSystemSettings((prev) => ({
+            ...prev,
+            livekitApiKey: statusData.configured ? '••••••••' : '',
+            livekitApiSecret: statusData.configured ? '••••••••' : '',
+            livekitWsUrl: statusData.wsUrl || prev.livekitWsUrl || '',
+          }));
+          return Boolean(statusData.configured);
+        }
+        showToast(
+          'Admin access required',
+          'Detailed LiveKit config is restricted to admins. Video calling still uses the public status check.',
+          'warning'
+        );
+        return false;
+      }
+
       if (res.ok && data.success !== false) {
         setSystemSettings((prev) => ({
           ...prev,
@@ -7487,22 +7531,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           livekitApiSecret: data.configured ? '••••••••' : '',
           livekitWsUrl: data.wsUrl || prev.livekitWsUrl || '',
         }));
-        if (data.configured) {
-          showToast(
-            'LiveKit Env Active 🔑',
-            data.message || 'LiveKit credentials are loaded from server environment variables.',
-            'success'
-          );
-        } else {
-          showToast(
-            'LiveKit Not Configured',
-            data.message || 'Set LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET in Vercel env and Redeploy.',
-            'warning'
-          );
+        if (isAdmin) {
+          if (data.configured) {
+            showToast(
+              'LiveKit Env Active 🔑',
+              data.message || 'LiveKit credentials are loaded from server environment variables.',
+              'success'
+            );
+          } else {
+            showToast(
+              'LiveKit Not Configured',
+              data.message ||
+                'Set LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET in Vercel env and Redeploy.',
+              'warning'
+            );
+          }
         }
         return Boolean(data.configured);
       }
-      showToast('LiveKit Status Error', data?.error?.message || data?.error || 'Could not read LiveKit config', 'error');
+      showToast(
+        'LiveKit Status Error',
+        data?.error?.message || data?.error || 'Could not read LiveKit status',
+        'error'
+      );
       return false;
     } catch {
       showToast('Connection Error', 'Could not reach server for LiveKit status.', 'error');

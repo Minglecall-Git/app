@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const PROFILE_SELECT =
-  'id, name, gender, age, dob, nationality, country_code, spoken_languages, bio, extended_bio, location_city, zodiac, interests, tags, avatar_url, gallery, gallery_videos, intro_video_url, is_verified, online_status, role, hourly_coin_rate, created_at, coin_balance, earnings_coins, email, auth_id, rating_score, total_reviews_count';
+  'id, name, gender, age, dob, nationality, country_code, spoken_languages, bio, extended_bio, location_city, zodiac, interests, tags, avatar_url, gallery, gallery_videos, intro_video_url, is_verified, is_onboarded, agreed_to_terms, agreed_to_adult_terms, agreed_to_host_terms, online_status, role, hourly_coin_rate, created_at, coin_balance, earnings_coins, email, auth_id, rating_score, total_reviews_count';
 
 function mapMeProfile(row: Record<string, any>) {
   const gallery = Array.isArray(row.gallery) ? row.gallery : [];
@@ -31,6 +31,10 @@ function mapMeProfile(row: Record<string, any>) {
     galleryVideos: Array.isArray(row.gallery_videos) ? row.gallery_videos : [],
     introVideoUrl: row.intro_video_url || undefined,
     isVerified: Boolean(row.is_verified),
+    isOnboarded: Boolean(row.is_onboarded),
+    agreedToTerms: Boolean(row.agreed_to_terms),
+    agreedToAdultTerms: Boolean(row.agreed_to_adult_terms),
+    agreedToHostTerms: Boolean(row.agreed_to_host_terms),
     onlineStatus: row.online_status || 'offline',
     role: row.role || 'male_user',
     hourlyCoinRate: Number(row.hourly_coin_rate) || 0,
