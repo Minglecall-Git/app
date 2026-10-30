@@ -50,6 +50,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const headerScripts = branding.headerScripts?.trim() || '';
   const footerScripts = branding.footerScripts?.trim() || '';
   const themeColor = branding.themeColor || DEFAULT_SITE_BRANDING.themeColor;
+  // When Measurement ID owns GA4, strip duplicate gtag from pasted header/footer HTML.
+  const stripGtagFromSnippets = Boolean(ga4Id);
 
   return (
     <html lang="en" className="dark" data-theme="dark">
@@ -66,8 +68,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         ) : null}
 
         {/*
-          Classic gtag snippet in initial HTML (<head>).
-          Google's "tag wasn't detected" check reads page source — not afterInteractive JS.
+          Single GA4 install via Measurement ID.
+          send_page_view: false — Ga4PageViews owns page_view (initial + SPA).
         */}
         {ga4Id ? (
           <>
@@ -82,22 +84,29 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
 gtag('js', new Date());
-gtag('config', ${JSON.stringify(ga4Id)});
+gtag('config', ${JSON.stringify(ga4Id)}, { send_page_view: false });
 `.trim(),
               }}
             />
           </>
         ) : null}
 
-        {/* Admin-pasted header scripts (also SSR so crawlers can see them) */}
         {headerScripts ? (
-          <HtmlSnippetNodes html={headerScripts} idPrefix="cms-header" />
+          <HtmlSnippetNodes
+            html={headerScripts}
+            idPrefix="cms-header"
+            stripGtag={stripGtagFromSnippets}
+          />
         ) : null}
       </head>
       <body>
         {children}
         {footerScripts ? (
-          <HtmlSnippetNodes html={footerScripts} idPrefix="cms-footer" />
+          <HtmlSnippetNodes
+            html={footerScripts}
+            idPrefix="cms-footer"
+            stripGtag={stripGtagFromSnippets}
+          />
         ) : null}
         {ga4Id ? (
           <Suspense fallback={null}>

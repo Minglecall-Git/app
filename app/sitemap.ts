@@ -1,14 +1,29 @@
 import type { MetadataRoute } from 'next';
+import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 import {
   buildSitemapPaths,
   getPublicSiteOrigin,
   mapSitemapConfigRow,
+  originFromRequestHost,
 } from '../shared/cms/sitemap';
 import { getSupabaseApiEnv, isServerAdminApiKey } from '../shared/supabaseApiKeys';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+async function resolvePublicOrigin(): Promise<string> {
+  try {
+    const h = await headers();
+    const requestOrigin = originFromRequestHost(
+      h.get('x-forwarded-host') || h.get('host'),
+      h.get('x-forwarded-proto')
+    );
+    return getPublicSiteOrigin(requestOrigin || undefined);
+  } catch {
+    return getPublicSiteOrigin();
+  }
+}
 
 async function loadSitemapMeta(): Promise<{ lastModified: Date; paths: string[] }> {
   const fallback = {
@@ -47,7 +62,7 @@ async function loadSitemapMeta(): Promise<{ lastModified: Date; paths: string[] 
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const origin = getPublicSiteOrigin();
+  const origin = await resolvePublicOrigin();
   const { lastModified, paths } = await loadSitemapMeta();
 
   return paths.map((path, index) => ({

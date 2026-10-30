@@ -55,15 +55,45 @@ export function parseHtmlSnippetParts(html: string): SnippetPart[] {
   return parts;
 }
 
+/** True when a snippet part is GA/GTM gtag (would duplicate Measurement ID injection). */
+export function isGtagRelatedSnippet(part: SnippetPart): boolean {
+  if (part.kind === 'script-src') {
+    return /googletagmanager\.com\/(gtag\/js|gtm\.js)|google-analytics\.com\/(analytics|gtag\/js)/i.test(
+      part.src
+    );
+  }
+  if (part.kind === 'script-inline') {
+    return /gtag\s*\(|function\s+gtag\b|dataLayer\.push|googletagmanager\.com\/gtag|google-analytics\.com\/analytics/i.test(
+      part.code
+    );
+  }
+  return false;
+}
+
+/**
+ * Drop gtag/GTM script tags from admin-pasted HTML when Measurement ID injection
+ * is already handling GA4 (prevents double install).
+ */
+export function filterSnippetParts(
+  parts: SnippetPart[],
+  opts?: { stripGtag?: boolean }
+): SnippetPart[] {
+  if (!opts?.stripGtag) return parts;
+  return parts.filter((p) => !isGtagRelatedSnippet(p));
+}
+
 /** Server-render snippet parts as real DOM nodes in initial HTML. */
 export function HtmlSnippetNodes({
   html,
   idPrefix,
+  stripGtag = false,
 }: {
   html: string;
   idPrefix: string;
+  /** When true, omit googletagmanager / gtag scripts (Measurement ID owns GA4). */
+  stripGtag?: boolean;
 }) {
-  const parts = parseHtmlSnippetParts(html);
+  const parts = filterSnippetParts(parseHtmlSnippetParts(html), { stripGtag });
   if (!parts.length) return null;
 
   return (

@@ -364,8 +364,10 @@ export const AdminSeoBrandingCms: React.FC<Props> = ({ section }) => {
               />
             </label>
             <p className="text-[10px] text-amber-400/90">
-              Tip: If you paste the full Google tag into Header scripts, leave the GA4 Measurement
-              ID empty so gtag is not loaded twice.
+              Prefer the GA4 Measurement ID field above for Analytics. If that ID is set, any
+              googletagmanager/gtag snippets in Header/Footer are automatically stripped so the tag
+              is not loaded twice. Also turn off GA4 Enhanced Measurement → “Page changes based on
+              browser history events” so SPA page_views are not double-counted.
             </p>
           </div>
         </>
