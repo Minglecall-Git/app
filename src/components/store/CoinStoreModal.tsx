@@ -293,16 +293,24 @@ export const CoinStoreModal: React.FC<CoinStoreModalProps> = ({ isOpen, onClose 
                 packageId={selectedPkg.id}
                 payLabel={checkoutPayLabel(selectedPkg, selectedCurrency)}
                 onPaid={(coinBalance) => {
-                  void updateUserProfile(
-                    currentUser.id,
-                    { coinBalance },
-                    { silentSuccess: true }
-                  );
-                  showToast(
-                    'Coins credited',
-                    `Your new balance is ${coinBalance.toLocaleString()} coins.`,
-                    'success'
-                  );
+                  if (Number.isFinite(coinBalance) && coinBalance >= 0) {
+                    void updateUserProfile(
+                      currentUser.id,
+                      { coinBalance },
+                      { silentSuccess: true }
+                    );
+                    showToast(
+                      'Coins credited',
+                      `Your new balance is ${coinBalance.toLocaleString()} coins.`,
+                      'success'
+                    );
+                  } else {
+                    showToast(
+                      'Payment received',
+                      'Coins should appear on your balance shortly. Refresh if needed.',
+                      'success'
+                    );
+                  }
                   handleClose();
                 }}
                 onError={(message) => {

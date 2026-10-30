@@ -210,11 +210,25 @@ function CheckoutInner({
       const res = await postPayPalCapture({ purchaseId, orderId });
       setBusy(false);
       if (!res.success || !res.data) {
+        const msg = (res.error?.message || '').toLowerCase();
+        // Soft success if race left payment paid but response still looks like a conflict
+        if (
+          msg.includes('already') ||
+          msg.includes('completed') ||
+          res.error?.code === 'DUPLICATE' ||
+          res.error?.code === 'INVALID_STATUS'
+        ) {
+          // NaN = paid OK, do not overwrite local balance (parent should toast + close)
+          onPaid(Number.NaN);
+          purchaseIdRef.current = null;
+          orderIdRef.current = null;
+          return;
+        }
         onError(res.error?.message || 'Payment capture failed');
         return;
       }
       const balance = Number(res.data.coinBalance);
-      onPaid(Number.isFinite(balance) ? balance : 0);
+      onPaid(Number.isFinite(balance) ? balance : Number.NaN);
       purchaseIdRef.current = null;
       orderIdRef.current = null;
     },

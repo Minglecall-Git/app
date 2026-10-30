@@ -1396,6 +1396,27 @@ export async function dispatchFinance(
         purchaseId,
       });
       if (!captured.success) {
+        // Webhook may have completed the purchase while capture raced — treat as success
+        const { data: afterRace } = await client
+          .from('coin_purchases')
+          .select('id, status, wallet_ledger_id, user_id')
+          .eq('id', purchaseId)
+          .maybeSingle();
+        if (afterRace && String(afterRace.status) === 'completed') {
+          const { data: profile } = await client
+            .from('profiles')
+            .select('coin_balance')
+            .eq('id', userId)
+            .maybeSingle();
+          return sendOk({
+            purchaseId,
+            walletLedgerId: afterRace.wallet_ledger_id || undefined,
+            coinBalance: Number(profile?.coin_balance) || 0,
+            duplicate: true,
+            status: 'completed',
+            provider: providerId,
+          });
+        }
         return sendError(
           402,
           captured.error || 'Payment capture failed',
@@ -1416,6 +1437,29 @@ export async function dispatchFinance(
       });
 
       if (!result.success) {
+        // Idempotent credit already applied (webhook won) — still return success UX
+        if (result.code === 'DUPLICATE' || result.code === 'INVALID_STATUS') {
+          const { data: after } = await client
+            .from('coin_purchases')
+            .select('id, status, wallet_ledger_id')
+            .eq('id', purchaseId)
+            .maybeSingle();
+          if (after && String(after.status) === 'completed') {
+            const { data: profile } = await client
+              .from('profiles')
+              .select('coin_balance')
+              .eq('id', userId)
+              .maybeSingle();
+            return sendOk({
+              purchaseId,
+              walletLedgerId: after.wallet_ledger_id || result.walletLedgerId,
+              coinBalance: Number(profile?.coin_balance) || result.coinBalance || 0,
+              duplicate: true,
+              status: 'completed',
+              provider: providerId,
+            });
+          }
+        }
         const st =
           result.code === 'NOT_FOUND'
             ? 404

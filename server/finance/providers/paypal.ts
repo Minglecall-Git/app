@@ -192,6 +192,73 @@ export function createPayPalProvider(
         return { success: false, error: auth.error || 'PayPal auth failed', code: 'PAYPAL_AUTH_FAILED' };
       }
 
+      type OrderBody = {
+        id?: string;
+        status?: string;
+        purchase_units?: Array<{
+          payments?: {
+            captures?: Array<{
+              status?: string;
+              amount?: { value?: string; currency_code?: string };
+            }>;
+          };
+        }>;
+        message?: string;
+        name?: string;
+        details?: Array<{ issue?: string; description?: string }>;
+      };
+
+      const extractAmountUsd = (body: OrderBody): number | null => {
+        const captureAmount = body.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value;
+        const amountUsd = captureAmount != null ? Number(captureAmount) : null;
+        return amountUsd != null && Number.isFinite(amountUsd) ? amountUsd : null;
+      };
+
+      const isCompletedOrder = (body: OrderBody): boolean => {
+        const status = String(body.status || '').toUpperCase();
+        if (status === 'COMPLETED') return true;
+        const captures = body.purchase_units?.[0]?.payments?.captures || [];
+        return captures.some((c) => String(c.status || '').toUpperCase() === 'COMPLETED');
+      };
+
+      const looksAlreadyCaptured = (status: number, body: OrderBody): boolean => {
+        const issues = (body.details || []).map((d) => String(d.issue || '').toUpperCase());
+        if (issues.includes('ORDER_ALREADY_CAPTURED')) return true;
+        if (issues.includes('ORDER_ALREADY_COMPLETED')) return true;
+        const blob = `${body.name || ''} ${body.message || ''} ${(body.details || [])
+          .map((d) => `${d.issue || ''} ${d.description || ''}`)
+          .join(' ')}`.toLowerCase();
+        if (blob.includes('already been captured') || blob.includes('order already captured')) {
+          return true;
+        }
+        if (blob.includes('already completed')) return true;
+        // Common race: 422 Unprocessable Entity from capture after webhook/return overlap
+        return status === 422 && issues.some((i) => i.includes('ALREADY'));
+      };
+
+      /** GET order — used when capture 422s / races so we don't fail a paid buyer. */
+      const fetchOrder = async (): Promise<{ ok: boolean; body: OrderBody; httpStatus: number }> => {
+        const getRes = await fetch(
+          `${apiBase(resolved.cfg.mode)}/v2/checkout/orders/${encodeURIComponent(orderId)}`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${auth.token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        const body = (await getRes.json().catch(() => ({}))) as OrderBody;
+        return { ok: getRes.ok, body, httpStatus: getRes.status };
+      };
+
+      const successFromOrder = (body: OrderBody): CaptureOrVerifyResult => ({
+        success: true,
+        externalRef: orderId,
+        status: 'COMPLETED',
+        amountUsd: extractAmountUsd(body),
+      });
+
       const res = await fetch(
         `${apiBase(resolved.cfg.mode)}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
         {
@@ -204,49 +271,52 @@ export function createPayPalProvider(
           body: '{}',
         }
       );
-      const data = (await res.json().catch(() => ({}))) as {
-        id?: string;
-        status?: string;
-        purchase_units?: Array<{
-          payments?: {
-            captures?: Array<{
-              status?: string;
-              amount?: { value?: string; currency_code?: string };
-            }>;
-          };
-        }>;
-        message?: string;
-        details?: Array<{ issue?: string; description?: string }>;
-      };
+      const data = (await res.json().catch(() => ({}))) as OrderBody;
 
-      // ORDER_ALREADY_CAPTURED → treat as success for idempotency
-      const already =
-        res.status === 422 &&
-        (data.details || []).some((d) => String(d.issue || '').toUpperCase() === 'ORDER_ALREADY_CAPTURED');
+      // Happy path
+      if (res.ok && isCompletedOrder(data)) {
+        return successFromOrder(data);
+      }
+      if (res.ok && String(data.status || '').toUpperCase() === 'COMPLETED') {
+        return successFromOrder(data);
+      }
 
-      if (!res.ok && !already) {
+      // Idempotent: capture already done (webhook / double submit / retry)
+      if (looksAlreadyCaptured(res.status, data)) {
+        const verified = await fetchOrder();
+        if (verified.ok && isCompletedOrder(verified.body)) {
+          return successFromOrder(verified.body);
+        }
+        // PayPal said already captured even if GET is flaky — still succeed for ledger complete
+        return {
+          success: true,
+          externalRef: orderId,
+          status: 'COMPLETED',
+          amountUsd: extractAmountUsd(data),
+        };
+      }
+
+      // Any other capture failure: verify order state before failing the buyer
+      if (!res.ok) {
+        const verified = await fetchOrder();
+        if (verified.ok && isCompletedOrder(verified.body)) {
+          return successFromOrder(verified.body);
+        }
         const detail =
           data.details?.[0]?.description || data.message || `PayPal capture failed (${res.status})`;
         return { success: false, error: detail, code: 'PAYPAL_CAPTURE_FAILED' };
       }
 
-      const status = already ? 'COMPLETED' : String(data.status || '');
-      if (!already && status !== 'COMPLETED') {
-        return {
-          success: false,
-          error: `PayPal order status is ${status || 'unknown'}`,
-          code: 'PAYPAL_NOT_COMPLETED',
-        };
+      // Capture HTTP ok but status not COMPLETED — double-check via GET
+      const verified = await fetchOrder();
+      if (verified.ok && isCompletedOrder(verified.body)) {
+        return successFromOrder(verified.body);
       }
 
-      const captureAmount = data.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value;
-      const amountUsd = captureAmount != null ? Number(captureAmount) : null;
-
       return {
-        success: true,
-        externalRef: orderId,
-        status: 'COMPLETED',
-        amountUsd: amountUsd != null && Number.isFinite(amountUsd) ? amountUsd : null,
+        success: false,
+        error: `PayPal order status is ${data.status || verified.body.status || 'unknown'}`,
+        code: 'PAYPAL_NOT_COMPLETED',
       };
     },
 
