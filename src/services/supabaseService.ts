@@ -2375,6 +2375,8 @@ export async function fetchCmsSiteBrandingFromSupabase(): Promise<{
   faviconUrl: string;
   ogImageUrl: string;
   themeColor: string;
+  ga4MeasurementId: string;
+  gscVerificationContent: string;
   updatedAt?: string | null;
 } | null> {
   if (!isSupabaseConfigured()) return null;
@@ -2382,7 +2384,7 @@ export async function fetchCmsSiteBrandingFromSupabase(): Promise<{
     const { data, error } = await supabase
       .from('cms_site_branding')
       .select(
-        'id, page_title, meta_description, site_name, logo_url, favicon_url, og_image_url, theme_color, updated_at'
+        'id, page_title, meta_description, site_name, logo_url, favicon_url, og_image_url, theme_color, ga4_measurement_id, gsc_verification_content, updated_at'
       )
       .eq('id', 'default')
       .maybeSingle();
@@ -2391,16 +2393,19 @@ export async function fetchCmsSiteBrandingFromSupabase(): Promise<{
       return null;
     }
     if (!data) return null;
+    const row = data as Record<string, unknown>;
     return {
-      id: String(data.id || 'default'),
-      pageTitle: String(data.page_title || ''),
-      metaDescription: String(data.meta_description || ''),
-      siteName: String(data.site_name || ''),
-      logoUrl: String(data.logo_url || ''),
-      faviconUrl: String(data.favicon_url || ''),
-      ogImageUrl: String(data.og_image_url || ''),
-      themeColor: String(data.theme_color || '#09090C'),
-      updatedAt: data.updated_at ?? null,
+      id: String(row.id || 'default'),
+      pageTitle: String(row.page_title || ''),
+      metaDescription: String(row.meta_description || ''),
+      siteName: String(row.site_name || ''),
+      logoUrl: String(row.logo_url || ''),
+      faviconUrl: String(row.favicon_url || ''),
+      ogImageUrl: String(row.og_image_url || ''),
+      themeColor: String(row.theme_color || '#09090C'),
+      ga4MeasurementId: String(row.ga4_measurement_id || ''),
+      gscVerificationContent: String(row.gsc_verification_content || ''),
+      updatedAt: (row.updated_at as string | null | undefined) ?? null,
     };
   } catch (err) {
     console.warn('Supabase fetchCmsSiteBranding exception:', err);

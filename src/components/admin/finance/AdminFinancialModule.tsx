@@ -214,20 +214,30 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
     void loadCore();
   }, [loadCore]);
 
+  const fundingRowsRef = useRef(fundingRows);
+  fundingRowsRef.current = fundingRows;
+  const fundingReqIdRef = useRef(0);
+
   const loadFunding = useCallback(async () => {
-    setFundingLoading(true);
+    const reqId = ++fundingReqIdRef.current;
+    const hasRows = fundingRowsRef.current.length > 0;
+    // Avoid full-table loading flash on repeat/stale-effect refreshes
+    if (!hasRows) setFundingLoading(true);
+
     const res = await fetchFinanceFunding({
       channel: fundingChannel === 'ALL' ? '' : fundingChannel,
       limit: 200,
     });
+    if (reqId !== fundingReqIdRef.current) return;
+
     if (!res.success) {
-      showToast('Funding load failed', res.error?.message || 'Error', 'error');
-      setFundingRows([]);
+      showToastRef.current('Funding load failed', res.error?.message || 'Error', 'error');
+      if (!hasRows) setFundingRows([]);
     } else {
       setFundingRows(res.data?.purchases || []);
     }
     setFundingLoading(false);
-  }, [fundingChannel, showToast]);
+  }, [fundingChannel]);
 
   const loadLiveLedger = useCallback(
     async (overrides?: { userId?: string; callId?: string }) => {
@@ -291,16 +301,28 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
     if (tab === 'live_ledger') {
       void loadLiveLedger();
     }
-    if (tab === 'funding') {
-      void loadFunding();
-      void (async () => {
-        const res = await fetchPaymentGateways();
-        if (res.success && res.data) {
-          setActiveGatewayName(res.data.activeGatewayName || null);
-        }
-      })();
-    }
-  }, [tab, loadFunding, loadLiveLedger]);
+  }, [tab, loadLiveLedger]);
+
+  // Funding: depend on tab + channel only (not unstable showToast / callback identity)
+  useEffect(() => {
+    if (tab !== 'funding') return;
+    void loadFunding();
+  }, [tab, fundingChannel, loadFunding]);
+
+  useEffect(() => {
+    if (tab !== 'funding') return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetchPaymentGateways();
+      if (cancelled) return;
+      if (res.success && res.data) {
+        setActiveGatewayName(res.data.activeGatewayName || null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
 
   useEffect(() => {
     if (!selectedBatchId) {

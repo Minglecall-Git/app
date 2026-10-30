@@ -850,8 +850,18 @@ CREATE TABLE IF NOT EXISTS public.cms_site_branding (
     favicon_url TEXT,
     og_image_url TEXT,
     theme_color TEXT NOT NULL DEFAULT '#09090C',
+    -- Google Analytics 4 Measurement ID (e.g. G-XXXXXXXXXX). Empty = do not inject gtag.
+    ga4_measurement_id TEXT,
+    -- Google Search Console verification: meta content value only (not the full <meta> tag).
+    gsc_verification_content TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Existing DBs created before tracking columns existed.
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS ga4_measurement_id TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS gsc_verification_content TEXT;
 
 ALTER TABLE public.cms_site_branding ENABLE ROW LEVEL SECURITY;
 

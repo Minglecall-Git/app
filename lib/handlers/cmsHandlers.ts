@@ -15,7 +15,12 @@ import {
   type AppNavItem,
 } from '../../shared/appNav';
 import { DEFAULT_FEEDBACK_CATALOG } from '../../shared/cms/feedbackCatalog';
-import { DEFAULT_SITE_BRANDING, mapSiteBrandingRow } from '../../shared/cms/siteBranding';
+import {
+  DEFAULT_SITE_BRANDING,
+  mapSiteBrandingRow,
+  normalizeGa4MeasurementId,
+  normalizeGscVerificationContent,
+} from '../../shared/cms/siteBranding';
 
 const CMS_ACTION_TYPES = new Set(['tab', 'modal', 'external', 'policy']);
 const POLICY_CATEGORIES = new Set(['safety', 'privacy', 'terms', 'coins', 'creators', 'moderation']);
@@ -903,6 +908,24 @@ async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
       const faviconUrl = String(body.faviconUrl ?? body.favicon_url ?? '').trim();
       const ogImageUrl = String(body.ogImageUrl ?? body.og_image_url ?? '').trim();
       const themeColor = String(body.themeColor ?? body.theme_color ?? '#09090C').trim() || '#09090C';
+      const ga4MeasurementId = normalizeGa4MeasurementId(
+        body.ga4MeasurementId ?? body.ga4_measurement_id
+      );
+      if (ga4MeasurementId === null) {
+        return err(400, {
+          success: false,
+          error: 'Invalid GA4 Measurement ID (expected format G-XXXXXXXXXX)',
+        });
+      }
+      const gscVerificationContent = normalizeGscVerificationContent(
+        body.gscVerificationContent ?? body.gsc_verification_content
+      );
+      if (gscVerificationContent === null) {
+        return err(400, {
+          success: false,
+          error: 'Invalid Google Search Console verification content',
+        });
+      }
       for (const [label, url] of [
         ['logoUrl', logoUrl],
         ['faviconUrl', faviconUrl],
@@ -921,6 +944,8 @@ async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
         favicon_url: faviconUrl || null,
         og_image_url: ogImageUrl || null,
         theme_color: themeColor.slice(0, 32),
+        ga4_measurement_id: ga4MeasurementId || null,
+        gsc_verification_content: gscVerificationContent || null,
         updated_at: new Date().toISOString(),
       };
       const client = getSupabaseAdmin()!;

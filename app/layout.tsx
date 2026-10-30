@@ -1,29 +1,47 @@
 import type { Metadata, Viewport } from 'next';
+import { Suspense } from 'react';
+import Script from 'next/script';
 import '../src/index.css';
 import { DEFAULT_SITE_BRANDING } from '../shared/cms/siteBranding';
+import { fetchSiteBrandingServer } from '../lib/cms/fetchSiteBrandingServer';
+import { Ga4PageViews } from '../src/components/analytics/Ga4PageViews';
 
-/** Static defaults; client hydrates CMS overrides via AppContext → applySiteBrandingToDocument. */
-export const metadata: Metadata = {
-  title: DEFAULT_SITE_BRANDING.pageTitle,
-  description: DEFAULT_SITE_BRANDING.metaDescription,
-  applicationName: DEFAULT_SITE_BRANDING.siteName,
-  icons: {
-    icon: DEFAULT_SITE_BRANDING.faviconUrl,
-    apple: DEFAULT_SITE_BRANDING.faviconUrl,
-  },
-  openGraph: {
-    title: DEFAULT_SITE_BRANDING.pageTitle,
-    description: DEFAULT_SITE_BRANDING.metaDescription,
-    siteName: DEFAULT_SITE_BRANDING.siteName,
-    type: 'website',
-  },
-};
+/** Static defaults; runtime CMS overlays via generateMetadata + AppContext. */
+export async function generateMetadata(): Promise<Metadata> {
+  const branding = await fetchSiteBrandingServer();
+  const verification = branding.gscVerificationContent
+    ? { google: branding.gscVerificationContent }
+    : undefined;
+
+  return {
+    title: branding.pageTitle || DEFAULT_SITE_BRANDING.pageTitle,
+    description: branding.metaDescription || DEFAULT_SITE_BRANDING.metaDescription,
+    applicationName: branding.siteName || DEFAULT_SITE_BRANDING.siteName,
+    icons: {
+      icon: branding.faviconUrl || DEFAULT_SITE_BRANDING.faviconUrl,
+      apple: branding.faviconUrl || DEFAULT_SITE_BRANDING.faviconUrl,
+    },
+    openGraph: {
+      title: branding.pageTitle || DEFAULT_SITE_BRANDING.pageTitle,
+      description: branding.metaDescription || DEFAULT_SITE_BRANDING.metaDescription,
+      siteName: branding.siteName || DEFAULT_SITE_BRANDING.siteName,
+      type: 'website',
+      ...(branding.ogImageUrl ? { images: [{ url: branding.ogImageUrl }] } : {}),
+    },
+    verification,
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: DEFAULT_SITE_BRANDING.themeColor,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const branding = await fetchSiteBrandingServer();
+  const ga4Id = branding.ga4MeasurementId;
+  const gscContent = branding.gscVerificationContent;
+  const themeColor = branding.themeColor || DEFAULT_SITE_BRANDING.themeColor;
+
   return (
     <html lang="en" className="dark" data-theme="dark">
       <head>
@@ -33,9 +51,33 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
           rel="stylesheet"
         />
-        <meta name="theme-color" content={DEFAULT_SITE_BRANDING.themeColor} />
+        <meta name="theme-color" content={themeColor} />
+        {gscContent ? (
+          <meta name="google-site-verification" content={gscContent} />
+        ) : null}
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {ga4Id ? (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4Id)}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga4-gtag-init" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', ${JSON.stringify(ga4Id)}, { send_page_view: false });
+              `}
+            </Script>
+            <Suspense fallback={null}>
+              <Ga4PageViews measurementId={ga4Id} />
+            </Suspense>
+          </>
+        ) : null}
+      </body>
     </html>
   );
 }

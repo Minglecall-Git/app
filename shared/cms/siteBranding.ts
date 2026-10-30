@@ -12,6 +12,10 @@ export type SiteBranding = {
   faviconUrl: string;
   ogImageUrl: string;
   themeColor: string;
+  /** GA4 Measurement ID (G-XXXXXXXXXX). Empty string = tracking disabled. */
+  ga4MeasurementId: string;
+  /** google-site-verification meta content value. Empty = no GSC meta. */
+  gscVerificationContent: string;
   updatedAt?: string | null;
 };
 
@@ -25,11 +29,55 @@ export const DEFAULT_SITE_BRANDING: SiteBranding = {
   faviconUrl: '/pwa-icon.svg',
   ogImageUrl: '',
   themeColor: '#09090C',
+  ga4MeasurementId: '',
+  gscVerificationContent: '',
   updatedAt: null,
 };
 
+const GA4_ID_RE = /^G-[A-Z0-9]+$/i;
+const GSC_CONTENT_MAX = 200;
+
+/**
+ * Accept `G-XXXXXXXXXX` (case-insensitive). Returns normalized uppercase ID or ''.
+ * Invalid non-empty input returns null so callers can reject the save.
+ */
+export function normalizeGa4MeasurementId(raw: unknown): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (!GA4_ID_RE.test(s)) return null;
+  return s.toUpperCase();
+}
+
+/**
+ * Accept either the bare verification token or a pasted
+ * `<meta name="google-site-verification" content="..." />` tag.
+ * Returns content value or '' when empty. Returns null when clearly invalid.
+ */
+export function normalizeGscVerificationContent(raw: unknown): string | null {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+  const attr = s.match(/content\s*=\s*["']([^"']+)["']/i);
+  if (attr) s = attr[1].trim();
+  else {
+    s = s
+      .replace(/^<meta\b[^>]*>$/i, '')
+      .replace(/^content\s*=\s*/i, '')
+      .replace(/^["']|["']$/g, '')
+      .trim();
+  }
+  if (!s) return '';
+  if (s.length > GSC_CONTENT_MAX) return null;
+  // Tokens are typically alphanumeric / hyphen / underscore
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) return null;
+  return s;
+}
+
 export function mapSiteBrandingRow(row: any | null | undefined): SiteBranding {
   if (!row) return { ...DEFAULT_SITE_BRANDING };
+  const ga4Raw = row.ga4_measurement_id ?? row.ga4MeasurementId ?? '';
+  const gscRaw = row.gsc_verification_content ?? row.gscVerificationContent ?? '';
+  const ga4 = normalizeGa4MeasurementId(ga4Raw);
+  const gsc = normalizeGscVerificationContent(gscRaw);
   return {
     id: String(row.id || 'default'),
     pageTitle: String(row.page_title ?? row.pageTitle ?? DEFAULT_SITE_BRANDING.pageTitle).trim()
@@ -45,6 +93,8 @@ export function mapSiteBrandingRow(row: any | null | undefined): SiteBranding {
     ogImageUrl: String(row.og_image_url ?? row.ogImageUrl ?? '').trim(),
     themeColor: String(row.theme_color ?? row.themeColor ?? DEFAULT_SITE_BRANDING.themeColor).trim()
       || DEFAULT_SITE_BRANDING.themeColor,
+    ga4MeasurementId: ga4 || '',
+    gscVerificationContent: gsc || '',
     updatedAt: row.updated_at ?? row.updatedAt ?? null,
   };
 }
@@ -58,6 +108,11 @@ function upsertMeta(attr: 'name' | 'property', key: string, content: string) {
     document.head.appendChild(el);
   }
   el.setAttribute('content', content);
+}
+
+function removeMeta(attr: 'name' | 'property', key: string) {
+  if (typeof document === 'undefined') return;
+  document.head.querySelector(`meta[${attr}="${key}"]`)?.remove();
 }
 
 function upsertLinkRel(rel: string, href: string, type?: string) {
@@ -90,6 +145,11 @@ export function applySiteBrandingToDocument(branding: SiteBranding) {
   upsertMeta('name', 'twitter:title', b.pageTitle);
   upsertMeta('name', 'twitter:description', b.metaDescription);
   if (b.ogImageUrl) upsertMeta('name', 'twitter:image', b.ogImageUrl);
+  if (b.gscVerificationContent) {
+    upsertMeta('name', 'google-site-verification', b.gscVerificationContent);
+  } else {
+    removeMeta('name', 'google-site-verification');
+  }
   const favicon = b.faviconUrl || DEFAULT_SITE_BRANDING.faviconUrl;
   const isSvg = favicon.toLowerCase().includes('.svg');
   upsertLinkRel('icon', favicon, isSvg ? 'image/svg+xml' : undefined);

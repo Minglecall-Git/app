@@ -1,5 +1,6 @@
 /**
- * Admin CMS — SEO & branding: page title, description, logo, favicon, OG image.
+ * Admin CMS — SEO & branding: page title, description, logo, favicon, OG image,
+ * Google Analytics 4, and Google Search Console verification.
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Check, Globe, Loader2, RefreshCw } from 'lucide-react';
@@ -56,6 +57,8 @@ export const AdminSeoBrandingCms: React.FC = () => {
           faviconUrl: draft.faviconUrl,
           ogImageUrl: draft.ogImageUrl,
           themeColor: draft.themeColor,
+          ga4MeasurementId: draft.ga4MeasurementId,
+          gscVerificationContent: draft.gscVerificationContent,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -65,7 +68,11 @@ export const AdminSeoBrandingCms: React.FC = () => {
       }
       setDraft({ ...DEFAULT_SITE_BRANDING, ...(body.data || {}) });
       await reloadSiteBranding?.();
-      showToast('SEO saved', 'Page title, meta, and brand assets updated.', 'success');
+      showToast(
+        'SEO saved',
+        'Branding, GA4, and Search Console settings updated. Reload for tracking scripts.',
+        'success'
+      );
     } finally {
       setSaving(false);
     }
@@ -80,8 +87,9 @@ export const AdminSeoBrandingCms: React.FC = () => {
             SEO & branding
           </h3>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Edit browser tab title, meta description, favicon, app logo, and social preview image.
-            Changes apply on the next page load after save.
+            Edit browser tab title, meta description, favicon, app logo, social preview image,
+            Google Analytics 4, and Search Console verification. Tracking scripts apply on the
+            next full page load after save.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -218,6 +226,52 @@ export const AdminSeoBrandingCms: React.FC = () => {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 space-y-3">
+        <h4 className="text-sm font-bold text-white">Google tracking & verification</h4>
+        <p className="text-xs text-slate-400">
+          Leave either field empty to disable injection. Scripts and meta tags are never
+          rendered when blank.
+        </p>
+        <label className="block space-y-1">
+          <span className="text-[10px] uppercase text-slate-500 font-semibold">
+            GA4 Measurement ID
+          </span>
+          <input
+            value={draft.ga4MeasurementId || ''}
+            onChange={(e) => setDraft({ ...draft, ga4MeasurementId: e.target.value.trim() })}
+            placeholder="G-XXXXXXXXXX"
+            maxLength={32}
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono"
+          />
+          <span className="text-[10px] text-slate-500">
+            From Google Analytics → Admin → Data streams. Injected as gtag.js site-wide.
+          </span>
+        </label>
+        <label className="block space-y-1">
+          <span className="text-[10px] uppercase text-slate-500 font-semibold">
+            Google Search Console verification
+          </span>
+          <input
+            value={draft.gscVerificationContent || ''}
+            onChange={(e) =>
+              setDraft({ ...draft, gscVerificationContent: e.target.value.trim() })
+            }
+            placeholder='content value, or paste full <meta name="google-site-verification" … />'
+            maxLength={280}
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono"
+          />
+          <span className="text-[10px] text-slate-500">
+            Paste the verification token or the full HTML meta tag. Only the content value is
+            stored and rendered as{' '}
+            <code className="text-slate-400">&lt;meta name=&quot;google-site-verification&quot;&gt;</code>.
+          </span>
+        </label>
+      </div>
+
       <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
         <p className="text-[10px] uppercase text-slate-500 font-semibold mb-2">Preview</p>
         <div className="flex items-start gap-3">
@@ -234,6 +288,13 @@ export const AdminSeoBrandingCms: React.FC = () => {
               {draft.metaDescription || '—'}
             </p>
             <p className="text-[10px] text-slate-500 mt-1 font-mono">{draft.siteName}</p>
+            {(draft.ga4MeasurementId || draft.gscVerificationContent) && (
+              <p className="text-[10px] text-emerald-500/80 mt-1 font-mono">
+                {draft.ga4MeasurementId ? `GA4 ${draft.ga4MeasurementId}` : null}
+                {draft.ga4MeasurementId && draft.gscVerificationContent ? ' · ' : null}
+                {draft.gscVerificationContent ? 'GSC meta set' : null}
+              </p>
+            )}
           </div>
         </div>
       </div>
