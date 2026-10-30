@@ -27,6 +27,9 @@ export type AdminSubTabKey =
   | 'cms-payout-cards'
   | 'cms-toasts'
   | 'cms-seo'
+  | 'cms-branding'
+  | 'cms-tracking'
+  | 'cms-sitemap'
   | 'office-rbac'
   | 'cron-schedule'
   | 'data-purge';
@@ -46,6 +49,7 @@ export type AdminNavIconName =
   | 'Crown'
   | 'Target'
   | 'Globe'
+  | 'Map'
   | 'Key'
   | 'Database'
   | 'Activity'
@@ -327,11 +331,25 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         title: 'Edit app toast, alert, and feedback copy',
       },
       {
-        id: 'cms-seo',
-        label: 'SEO & branding',
+        id: 'cms-branding',
+        label: 'Site branding',
         icon: 'Globe',
         kind: 'tab',
-        title: 'Page title, meta description, logo, and favicon',
+        title: 'Page title, meta description, logo, favicon, and social image',
+      },
+      {
+        id: 'cms-tracking',
+        label: 'Tracking & scripts',
+        icon: 'Activity',
+        kind: 'tab',
+        title: 'GA4, Search Console, and header/footer script snippets',
+      },
+      {
+        id: 'cms-sitemap',
+        label: 'Sitemap',
+        icon: 'Map',
+        kind: 'tab',
+        title: 'Sitemap URL for Google Search Console and update lastmod',
       },
     ],
   },
@@ -389,6 +407,13 @@ export function filterAdminNavGroups(
   const can = (key: string) => {
     if (granted.has(key)) return true;
     if (key === 'data-purge' && granted.has('reset-data')) return true;
+    // Legacy single SEO menu → split CMS SEO menus
+    if (
+      (key === 'cms-branding' || key === 'cms-tracking' || key === 'cms-sitemap') &&
+      granted.has('cms-seo')
+    ) {
+      return true;
+    }
     if (key.includes(':')) {
       const parent = key.split(':')[0];
       return granted.has(parent);

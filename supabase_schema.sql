@@ -840,7 +840,7 @@ CREATE POLICY "admin write ui_feedback_messages" ON public.ui_feedback_messages
     )
   );
 
--- Site-wide SEO & branding (Admin → CMS → SEO & branding). Singleton row id = 'default'.
+-- Site-wide SEO & branding (Admin → CMS → Site branding / Tracking & scripts). Singleton row id = 'default'.
 CREATE TABLE IF NOT EXISTS public.cms_site_branding (
     id TEXT PRIMARY KEY DEFAULT 'default',
     page_title TEXT NOT NULL DEFAULT 'LiveCall - 1-on-1 Video & Monetization',
@@ -857,6 +857,9 @@ CREATE TABLE IF NOT EXISTS public.cms_site_branding (
     -- Raw HTML/JS snippets injected site-wide (Admin paste: Google tag, pixels, etc.).
     header_scripts TEXT,
     footer_scripts TEXT,
+    -- Sitemap lastmod bump + optional extra public paths (Admin → CMS → Sitemap).
+    sitemap_updated_at TIMESTAMPTZ,
+    sitemap_extra_paths TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -869,6 +872,10 @@ ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS header_scripts TEXT;
 ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS footer_scripts TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS sitemap_updated_at TIMESTAMPTZ;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS sitemap_extra_paths TEXT;
 
 ALTER TABLE public.cms_site_branding ENABLE ROW LEVEL SECURITY;
 

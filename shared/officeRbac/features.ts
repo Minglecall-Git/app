@@ -139,7 +139,9 @@ export const OFFICE_FEATURES: OfficeFeatureDef[] = [
   { key: 'cms-navigation', label: 'Navigation Editor', group: 'CMS', kind: 'tab' },
   { key: 'cms-payout-cards', label: 'Payout / Bank Cards', group: 'CMS', kind: 'tab' },
   { key: 'cms-toasts', label: 'Toasts & messages', group: 'CMS', kind: 'tab' },
-  { key: 'cms-seo', label: 'SEO & branding', group: 'CMS', kind: 'tab' },
+  { key: 'cms-branding', label: 'Site branding', group: 'CMS', kind: 'tab' },
+  { key: 'cms-tracking', label: 'Tracking & scripts', group: 'CMS', kind: 'tab' },
+  { key: 'cms-sitemap', label: 'Sitemap', group: 'CMS', kind: 'tab' },
   { key: 'setup-wizard', label: 'Setup Wizard GUI', group: 'Actions', kind: 'action' },
   { key: 'reset-data', label: 'Reset Data', group: 'Actions', kind: 'action' },
   {
@@ -171,6 +173,15 @@ export function hasOfficePermission(
   if (opts.isSuper) return true;
   const granted = new Set(opts.permissions || []);
   if (granted.has(featureKey)) return true;
+  // Legacy CMS SEO key grants split SEO menus.
+  if (
+    (featureKey === 'cms-branding' ||
+      featureKey === 'cms-tracking' ||
+      featureKey === 'cms-sitemap') &&
+    granted.has('cms-seo')
+  ) {
+    return true;
+  }
   // Module Purge shares the same destructive gate as Reset Data.
   if (featureKey === 'data-purge' && granted.has('reset-data')) return true;
   // L2 key: allow if parent L1 granted

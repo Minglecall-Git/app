@@ -98,7 +98,8 @@ import { AdminApiHealthPanel } from './AdminApiHealthPanel';
 import { AdminSystemTestingPanel } from './AdminSystemTestingPanel';
 import { AdminK6LoadTestingPanel } from './AdminK6LoadTestingPanel';
 import { AdminToastsMessagesCms } from './AdminToastsMessagesCms';
-import { AdminSeoBrandingCms } from './AdminSeoBrandingCms';
+import { AdminSiteBrandingCms, AdminTrackingScriptsCms } from './AdminSeoBrandingCms';
+import { AdminSitemapCms } from './AdminSitemapCms';
 import { ResetMockDataModal } from './ResetMockDataModal';
 import { AdminModulePurgeDashboard } from './AdminModulePurgeDashboard';
 import { AdminTaxonomyManager } from './AdminTaxonomyManager';
@@ -3442,7 +3443,11 @@ export const AdminDashboard: React.FC = () => {
       {activeSubTab === 'cms-navigation' && <AdminNavBarEditor />}
       {activeSubTab === 'cms-payout-cards' && <AdminPayoutCardsCMS />}
       {activeSubTab === 'cms-toasts' && canOffice('cms-toasts') && <AdminToastsMessagesCms />}
-      {activeSubTab === 'cms-seo' && canOffice('cms-seo') && <AdminSeoBrandingCms />}
+      {activeSubTab === 'cms-seo' &&
+        (canOffice('cms-branding') || canOffice('cms-seo')) && <AdminSiteBrandingCms />}
+      {activeSubTab === 'cms-branding' && canOffice('cms-branding') && <AdminSiteBrandingCms />}
+      {activeSubTab === 'cms-tracking' && canOffice('cms-tracking') && <AdminTrackingScriptsCms />}
+      {activeSubTab === 'cms-sitemap' && canOffice('cms-sitemap') && <AdminSitemapCms />}
       {activeSubTab === 'office-rbac' && canOffice('office-rbac') && <AdminOfficeRbacPage />}
       {activeSubTab === 'cron-schedule' && <AdminCronSchedulePanel />}
 

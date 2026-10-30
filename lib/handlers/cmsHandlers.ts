@@ -22,6 +22,17 @@ import {
   normalizeGa4MeasurementId,
   normalizeGscVerificationContent,
 } from '../../shared/cms/siteBranding';
+import {
+  DEFAULT_SITEMAP_PATHS,
+  buildSitemapPaths,
+  formatSitemapExtraPaths,
+  getPublicSiteOrigin,
+  mapSitemapConfigRow,
+  parseSitemapExtraPaths,
+  robotsTxtUrl,
+  sitemapXmlUrl,
+} from '../../shared/cms/sitemap';
+import { revalidatePath } from 'next/cache';
 
 const CMS_ACTION_TYPES = new Set(['tab', 'modal', 'external', 'policy']);
 const POLICY_CATEGORIES = new Set(['safety', 'privacy', 'terms', 'coins', 'creators', 'moderation']);
@@ -893,67 +904,112 @@ async function cms_GET_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
 async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record<string, unknown>): Promise<HandlerResult> {
     try {
       const cfgErr = requireConfigured(); if (cfgErr) return cfgErr;
-      const pageTitle = String(body.pageTitle || body.page_title || '').trim();
-      const metaDescription = String(body.metaDescription || body.meta_description || '').trim();
-      const siteName = String(body.siteName || body.site_name || '').trim();
-      if (!pageTitle) {
-        return err(400, { success: false, error: 'Page title is required' });
-      }
-      if (!metaDescription) {
-        return err(400, { success: false, error: 'Meta description is required' });
-      }
-      if (!siteName) {
-        return err(400, { success: false, error: 'Site name is required' });
-      }
-      const logoUrl = String(body.logoUrl ?? body.logo_url ?? '').trim();
-      const faviconUrl = String(body.faviconUrl ?? body.favicon_url ?? '').trim();
-      const ogImageUrl = String(body.ogImageUrl ?? body.og_image_url ?? '').trim();
-      const themeColor = String(body.themeColor ?? body.theme_color ?? '#09090C').trim() || '#09090C';
-      const ga4MeasurementId = normalizeGa4MeasurementId(
-        body.ga4MeasurementId ?? body.ga4_measurement_id
-      );
-      if (ga4MeasurementId === null) {
-        return err(400, {
+      const sectionRaw = String(body.section || 'all').trim().toLowerCase();
+      const section =
+        sectionRaw === 'branding' || sectionRaw === 'tracking' || sectionRaw === 'all'
+          ? sectionRaw
+          : 'all';
+      const updateBranding = section === 'branding' || section === 'all';
+      const updateTracking = section === 'tracking' || section === 'all';
+
+      const client = getSupabaseAdmin()!;
+      const { data: existing, error: existingErr } = await client
+        .from('cms_site_branding')
+        .select('*')
+        .eq('id', 'default')
+        .maybeSingle();
+      if (existingErr) {
+        return err(500, {
           success: false,
-          error: 'Invalid GA4 Measurement ID (expected format G-XXXXXXXXXX)',
+          error: safeError(existingErr.message, 'Failed to load current SEO branding'),
         });
       }
-      const gscVerificationContent = normalizeGscVerificationContent(
-        body.gscVerificationContent ?? body.gsc_verification_content
-      );
-      if (gscVerificationContent === null) {
-        return err(400, {
-          success: false,
-          error: 'Invalid Google Search Console verification content',
-        });
-      }
-      const headerScripts = normalizeCustomScripts(
-        body.headerScripts ?? body.header_scripts
-      );
-      if (headerScripts === null) {
-        return err(400, {
-          success: false,
-          error: 'Header scripts snippet is too large (max 50KB)',
-        });
-      }
-      const footerScripts = normalizeCustomScripts(
-        body.footerScripts ?? body.footer_scripts
-      );
-      if (footerScripts === null) {
-        return err(400, {
-          success: false,
-          error: 'Footer scripts snippet is too large (max 50KB)',
-        });
-      }
-      for (const [label, url] of [
-        ['logoUrl', logoUrl],
-        ['faviconUrl', faviconUrl],
-        ['ogImageUrl', ogImageUrl],
-      ] as const) {
-        if (url && !url.startsWith('/') && !isSafeHttpUrl(url)) {
-          return err(400, { success: false, error: `Invalid ${label} URL` });
+      const current = mapSiteBrandingRow(existing);
+
+      let pageTitle = current.pageTitle;
+      let metaDescription = current.metaDescription;
+      let siteName = current.siteName;
+      let logoUrl = current.logoUrl;
+      let faviconUrl = current.faviconUrl;
+      let ogImageUrl = current.ogImageUrl;
+      let themeColor = current.themeColor;
+      let ga4MeasurementId = current.ga4MeasurementId;
+      let gscVerificationContent = current.gscVerificationContent;
+      let headerScripts = current.headerScripts;
+      let footerScripts = current.footerScripts;
+
+      if (updateBranding) {
+        pageTitle = String(body.pageTitle || body.page_title || '').trim();
+        metaDescription = String(body.metaDescription || body.meta_description || '').trim();
+        siteName = String(body.siteName || body.site_name || '').trim();
+        if (!pageTitle) {
+          return err(400, { success: false, error: 'Page title is required' });
+        }
+        if (!metaDescription) {
+          return err(400, { success: false, error: 'Meta description is required' });
+        }
+        if (!siteName) {
+          return err(400, { success: false, error: 'Site name is required' });
+        }
+        logoUrl = String(body.logoUrl ?? body.logo_url ?? '').trim();
+        faviconUrl = String(body.faviconUrl ?? body.favicon_url ?? '').trim();
+        ogImageUrl = String(body.ogImageUrl ?? body.og_image_url ?? '').trim();
+        themeColor = String(body.themeColor ?? body.theme_color ?? '#09090C').trim() || '#09090C';
+        for (const [label, url] of [
+          ['logoUrl', logoUrl],
+          ['faviconUrl', faviconUrl],
+          ['ogImageUrl', ogImageUrl],
+        ] as const) {
+          if (url && !url.startsWith('/') && !isSafeHttpUrl(url)) {
+            return err(400, { success: false, error: `Invalid ${label} URL` });
+          }
         }
       }
+
+      if (updateTracking) {
+        const ga4 = normalizeGa4MeasurementId(
+          body.ga4MeasurementId ?? body.ga4_measurement_id
+        );
+        if (ga4 === null) {
+          return err(400, {
+            success: false,
+            error: 'Invalid GA4 Measurement ID (expected format G-XXXXXXXXXX)',
+          });
+        }
+        const gsc = normalizeGscVerificationContent(
+          body.gscVerificationContent ?? body.gsc_verification_content
+        );
+        if (gsc === null) {
+          return err(400, {
+            success: false,
+            error: 'Invalid Google Search Console verification content',
+          });
+        }
+        const header = normalizeCustomScripts(
+          body.headerScripts ?? body.header_scripts
+        );
+        if (header === null) {
+          return err(400, {
+            success: false,
+            error: 'Header scripts snippet is too large (max 50KB)',
+          });
+        }
+        const footer = normalizeCustomScripts(
+          body.footerScripts ?? body.footer_scripts
+        );
+        if (footer === null) {
+          return err(400, {
+            success: false,
+            error: 'Footer scripts snippet is too large (max 50KB)',
+          });
+        }
+        ga4MeasurementId = ga4;
+        gscVerificationContent = gsc;
+        headerScripts = header;
+        footerScripts = footer;
+      }
+
+      const sitemapCfg = mapSitemapConfigRow(existing);
       const row = {
         id: 'default',
         page_title: pageTitle.slice(0, 200),
@@ -967,9 +1023,11 @@ async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
         gsc_verification_content: gscVerificationContent || null,
         header_scripts: headerScripts || null,
         footer_scripts: footerScripts || null,
+        // Preserve sitemap fields when saving branding / tracking only
+        sitemap_updated_at: sitemapCfg.updatedAt,
+        sitemap_extra_paths: formatSitemapExtraPaths(sitemapCfg.extraPaths) || null,
         updated_at: new Date().toISOString(),
       };
-      const client = getSupabaseAdmin()!;
       const { data, error } = await client
         .from('cms_site_branding')
         .upsert(row, { onConflict: 'id' })
@@ -990,6 +1048,132 @@ async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
       });
     }
   
+}
+
+function sitemapAdminPayload(
+  origin: string,
+  cfg: { updatedAt: string | null; extraPaths: string[] }
+) {
+  const paths = buildSitemapPaths(cfg.extraPaths);
+  return {
+    sitemapUrl: sitemapXmlUrl(origin),
+    robotsUrl: robotsTxtUrl(origin),
+    lastUpdated: cfg.updatedAt,
+    paths,
+    extraPaths: cfg.extraPaths,
+    defaultPaths: [...DEFAULT_SITEMAP_PATHS],
+  };
+}
+
+async function cms_GET_cms_sitemap(
+  auth: AuthOk,
+  params: { },
+  body: Record<string, unknown>
+): Promise<HandlerResult> {
+  try {
+    const cfgErr = requireConfigured();
+    if (cfgErr) return cfgErr;
+    const client = getSupabaseAdmin()!;
+    const { data, error } = await client
+      .from('cms_site_branding')
+      .select('sitemap_updated_at, sitemap_extra_paths')
+      .eq('id', 'default')
+      .maybeSingle();
+    if (error) {
+      return err(500, {
+        success: false,
+        error: safeError(error.message, 'Failed to load sitemap settings'),
+      });
+    }
+    const origin = getPublicSiteOrigin();
+    return ok({
+      success: true,
+      data: sitemapAdminPayload(origin, mapSitemapConfigRow(data)),
+    });
+  } catch (e: any) {
+    console.error('GET /api/admin/cms/sitemap error:', e);
+    return err(500, {
+      success: false,
+      error: safeError(e, 'Failed to load sitemap settings'),
+    });
+  }
+}
+
+async function cms_POST_cms_sitemap(
+  auth: AuthOk,
+  params: { },
+  body: Record<string, unknown>
+): Promise<HandlerResult> {
+  try {
+    const cfgErr = requireConfigured();
+    if (cfgErr) return cfgErr;
+    const action = String(body.action || 'update').trim().toLowerCase();
+    if (action !== 'update') {
+      return err(400, { success: false, error: 'Unsupported action' });
+    }
+
+    const extraPaths = parseSitemapExtraPaths(
+      body.extraPaths ?? body.extra_paths ?? body.sitemapExtraPaths ?? ''
+    );
+    const nowIso = new Date().toISOString();
+    const client = getSupabaseAdmin()!;
+
+    // Ensure singleton row exists, then update sitemap fields only
+    const { data: existing } = await client
+      .from('cms_site_branding')
+      .select('id')
+      .eq('id', 'default')
+      .maybeSingle();
+
+    if (!existing) {
+      const { error: insertErr } = await client.from('cms_site_branding').insert({
+        id: 'default',
+        sitemap_updated_at: nowIso,
+        sitemap_extra_paths: formatSitemapExtraPaths(extraPaths) || null,
+        updated_at: nowIso,
+      });
+      if (insertErr) {
+        return err(500, {
+          success: false,
+          error: safeError(insertErr.message, 'Failed to update sitemap'),
+        });
+      }
+    } else {
+      const { error: updateErr } = await client
+        .from('cms_site_branding')
+        .update({
+          sitemap_updated_at: nowIso,
+          sitemap_extra_paths: formatSitemapExtraPaths(extraPaths) || null,
+          updated_at: nowIso,
+        })
+        .eq('id', 'default');
+      if (updateErr) {
+        return err(500, {
+          success: false,
+          error: safeError(updateErr.message, 'Failed to update sitemap'),
+        });
+      }
+    }
+
+    try {
+      revalidatePath('/sitemap.xml');
+      revalidatePath('/robots.txt');
+    } catch (revalErr) {
+      console.warn('sitemap revalidatePath:', revalErr);
+    }
+
+    const origin = getPublicSiteOrigin();
+    return ok({
+      success: true,
+      data: sitemapAdminPayload(origin, { updatedAt: nowIso, extraPaths }),
+    });
+  } catch (e: any) {
+    console.error('POST /api/admin/cms/sitemap error:', e);
+    return err(500, {
+      success: false,
+      error: safeError(e, 'Failed to update sitemap'),
+    });
+  }
 }
 
 export async function dispatchCmsAdmin(
@@ -1078,6 +1262,14 @@ export async function dispatchCmsAdmin(
   if (method === 'PUT') {
     const params = matchSegments(segments, ['cms', 'seo-branding']);
     if (params) return cms_PUT_cms_seo_branding(auth, {  }, body);
+  }
+  if (method === 'GET') {
+    const params = matchSegments(segments, ['cms', 'sitemap']);
+    if (params) return cms_GET_cms_sitemap(auth, {  }, body);
+  }
+  if (method === 'POST') {
+    const params = matchSegments(segments, ['cms', 'sitemap']);
+    if (params) return cms_POST_cms_sitemap(auth, {  }, body);
   }
   return null;
 }

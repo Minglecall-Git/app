@@ -22,6 +22,10 @@ ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS header_scripts TEXT;
 ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS footer_scripts TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS sitemap_updated_at TIMESTAMPTZ;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS sitemap_extra_paths TEXT;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -91,7 +95,9 @@ async function main() {
         'ga4_measurement_id',
         'gsc_verification_content',
         'header_scripts',
-        'footer_scripts'
+        'footer_scripts',
+        'sitemap_updated_at',
+        'sitemap_extra_paths'
       )
     ORDER BY column_name;
   `

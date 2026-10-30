@@ -1,11 +1,17 @@
 import type { Metadata, Viewport } from 'next';
 import { Suspense } from 'react';
-import Script from 'next/script';
 import '../src/index.css';
 import { DEFAULT_SITE_BRANDING } from '../shared/cms/siteBranding';
 import { fetchSiteBrandingServer } from '../lib/cms/fetchSiteBrandingServer';
+import { HtmlSnippetNodes } from '../lib/cms/htmlSnippets';
 import { Ga4PageViews } from '../src/components/analytics/Ga4PageViews';
-import { SiteHtmlInject } from '../src/components/analytics/SiteHtmlInject';
+
+/**
+ * Always re-read CMS branding (GA4 / GSC / header scripts) so Google's tag
+ * checker and browsers see the current Measurement ID in the initial HTML.
+ */
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /** Static defaults; runtime CMS overlays via generateMetadata + AppContext. */
 export async function generateMetadata(): Promise<Metadata> {
@@ -58,33 +64,45 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {gscContent ? (
           <meta name="google-site-verification" content={gscContent} />
         ) : null}
-      </head>
-      <body>
-        {headerScripts ? (
-          <SiteHtmlInject html={headerScripts} target="head" markerId="cms-header-scripts" />
-        ) : null}
-        {children}
-        {footerScripts ? (
-          <SiteHtmlInject html={footerScripts} target="body" markerId="cms-footer-scripts" />
-        ) : null}
+
+        {/*
+          Classic gtag snippet in initial HTML (<head>).
+          Google's "tag wasn't detected" check reads page source — not afterInteractive JS.
+        */}
         {ga4Id ? (
           <>
-            <Script
+            {/* Google tag (gtag.js) */}
+            <script
+              async
               src={`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4Id)}`}
-              strategy="afterInteractive"
             />
-            <Script id="ga4-gtag-init" strategy="afterInteractive">
-              {`
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('js', new Date());
-                gtag('config', ${JSON.stringify(ga4Id)}, { send_page_view: false });
-              `}
-            </Script>
-            <Suspense fallback={null}>
-              <Ga4PageViews measurementId={ga4Id} />
-            </Suspense>
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', ${JSON.stringify(ga4Id)});
+`.trim(),
+              }}
+            />
           </>
+        ) : null}
+
+        {/* Admin-pasted header scripts (also SSR so crawlers can see them) */}
+        {headerScripts ? (
+          <HtmlSnippetNodes html={headerScripts} idPrefix="cms-header" />
+        ) : null}
+      </head>
+      <body>
+        {children}
+        {footerScripts ? (
+          <HtmlSnippetNodes html={footerScripts} idPrefix="cms-footer" />
+        ) : null}
+        {ga4Id ? (
+          <Suspense fallback={null}>
+            <Ga4PageViews measurementId={ga4Id} />
+          </Suspense>
         ) : null}
       </body>
     </html>
