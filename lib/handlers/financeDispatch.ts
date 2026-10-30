@@ -1139,6 +1139,44 @@ export async function dispatchFinance(
       });
     }
 
+    if (sub === 'funding/checkout-config' && method === 'GET') {
+      const auth = await requireAuth(req);
+      if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+
+      const activeRes = await getActivePaymentGateway(client);
+      if (!activeRes.success) {
+        return sendError(500, activeRes.error || 'Gateway lookup failed', 'GATEWAY_LOOKUP_FAILED');
+      }
+      const active = activeRes.gateway;
+      if (!active) {
+        return sendError(
+          503,
+          'Payments temporarily unavailable — no active payment gateway',
+          'NO_ACTIVE_GATEWAY'
+        );
+      }
+
+      const clientId = String(
+        active.public_config?.client_id ||
+          active.secrets_encrypted?.client_id ||
+          (active.id === 'paypal' ? process.env.PAYPAL_CLIENT_ID : '') ||
+          ''
+      ).trim();
+      if (!clientId) {
+        return sendError(503, 'Payment gateway is not configured', 'NOT_CONFIGURED');
+      }
+
+      return sendOk({
+        provider: active.id,
+        providerDisplayName: active.display_name,
+        clientId,
+        mode: active.mode === 'live' ? 'live' : 'sandbox',
+        currency: 'USD',
+        inAppCheckout: active.id === 'paypal',
+      });
+    }
+
     if (sub === 'funding/checkout-intent' && method === 'POST') {
       const auth = await requireAuth(req);
       if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
@@ -1154,6 +1192,9 @@ export async function dispatchFinance(
             : '';
 
       if (!packageId) return sendError(400, 'packageId required', 'INVALID_PACKAGE');
+
+      const checkoutModeRaw = String(body.checkoutMode || body.checkout_mode || 'sdk').toLowerCase();
+      const checkoutMode = checkoutModeRaw === 'redirect' ? 'redirect' : 'sdk';
 
       const activeRes = await getActivePaymentGateway(client);
       if (!activeRes.success) {
@@ -1209,9 +1250,10 @@ export async function dispatchFinance(
         returnUrl,
         cancelUrl,
         customId: result.purchase.id,
+        checkoutMode,
       });
 
-      if (!checkout.success || !checkout.approvalUrl || !checkout.externalRef) {
+      if (!checkout.success || !checkout.externalRef) {
         await failCheckoutIntent({
           purchaseId: result.purchase.id,
           reason: checkout.error || 'Gateway checkout create failed',
@@ -1241,7 +1283,9 @@ export async function dispatchFinance(
           },
           package: result.package,
           checkoutToken: result.checkoutToken,
-          approvalUrl: checkout.approvalUrl,
+          approvalUrl: checkout.approvalUrl || null,
+          orderId: checkout.externalRef,
+          checkoutMode,
           provider: active.id,
           providerDisplayName: active.display_name,
         },

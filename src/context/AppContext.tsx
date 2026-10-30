@@ -5667,7 +5667,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: 'Password updated successfully!' };
   };
 
-  // Buy Coins — Active gateway checkout (never mutate coin_balance from the client)
+  /**
+   * Buy Coins — redirect fallback for Active gateway.
+   * Primary UX is in-app PayPal Card Fields / Buttons inside CoinStoreModal.
+   * Never mutate coin_balance from the client; capture credits server-side.
+   */
   const buyCoinPackage = (packageId: string) => {
     const pkg = coinPackages.find((p) => p.id === packageId);
     if (!pkg) return;
@@ -5677,7 +5681,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const res = await authFetch('/api/v1/finance/funding/checkout-intent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ packageId: pkg.id }),
+          body: JSON.stringify({ packageId: pkg.id, checkoutMode: 'redirect' }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data?.success === false) {
@@ -5696,7 +5700,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const payload = data?.data || data;
         const approvalUrl = payload?.approvalUrl || payload?.approval_url;
         if (approvalUrl && typeof approvalUrl === 'string') {
-          showToast('Redirecting to PayPal', 'Complete payment to credit coins.', 'info');
+          showToast('Opening secure checkout', 'Complete payment to credit coins.', 'info');
           window.location.assign(approvalUrl);
           return;
         }

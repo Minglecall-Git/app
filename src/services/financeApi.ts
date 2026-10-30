@@ -335,8 +335,23 @@ export function fetchMyFunding(params?: { limit?: number; offset?: number }) {
   );
 }
 
-/** Create pending GATEWAY purchase via the Active payment gateway (returns approvalUrl). */
-export function postFundingCheckoutIntent(body: { packageId: string }) {
+/** Public-safe checkout config for PayPal JS SDK (Client ID only — never secrets). */
+export function fetchFundingCheckoutConfig() {
+  return financeRequest<{
+    provider: string;
+    providerDisplayName: string;
+    clientId: string;
+    mode: 'sandbox' | 'live';
+    currency: string;
+    inAppCheckout: boolean;
+  }>('/funding/checkout-config');
+}
+
+/** Create pending GATEWAY purchase via the Active payment gateway. */
+export function postFundingCheckoutIntent(body: {
+  packageId: string;
+  checkoutMode?: 'sdk' | 'redirect';
+}) {
   return financeRequest<{
     purchase: {
       id: string;
@@ -360,6 +375,8 @@ export function postFundingCheckoutIntent(body: { packageId: string }) {
     };
     checkoutToken: string;
     approvalUrl?: string | null;
+    orderId?: string;
+    checkoutMode?: 'sdk' | 'redirect';
     provider?: string;
     providerDisplayName?: string;
     note?: string;

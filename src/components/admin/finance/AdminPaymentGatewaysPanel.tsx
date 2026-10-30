@@ -141,6 +141,12 @@ export const AdminPaymentGatewaysPanel: React.FC = () => {
           <p className="text-[10px] text-slate-400 mt-1 font-mono">
             Active: {activeName || '— none —'}
           </p>
+          <p className="text-[10px] text-slate-500 mt-2 max-w-2xl leading-relaxed">
+            In-app card checkout uses PayPal Advanced Card Fields + Smart Buttons (Client ID only on
+            the browser). Enable Advanced Checkout / Card Fields on your PayPal app, keep Mode
+            matching sandbox vs live credentials, and ensure guest/card checkout is allowed for your
+            merchant country. Redirect return URLs remain available as a fallback.
+          </p>
         </div>
         <button
           type="button"
@@ -290,6 +296,8 @@ export const AdminPaymentGatewaysPanel: React.FC = () => {
               </label>
               <p className="text-[10px] text-slate-500">
                 Secrets are stored server-side only. After save, values appear masked (••••last4).
+                Client ID is used by the in-app PayPal SDK; Client Secret never leaves the server.
+                Sandbox vs Live must match the credentials you paste.
               </p>
             </div>
             <div className="px-4 py-3 border-t border-slate-800 flex justify-end gap-2">

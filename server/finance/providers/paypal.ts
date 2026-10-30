@@ -108,27 +108,40 @@ export function createPayPalProvider(
 
       const currency = (params.currency || 'USD').toUpperCase();
       const value = amount.toFixed(2);
-      const body = {
+      const checkoutMode = params.checkoutMode === 'redirect' ? 'redirect' : 'sdk';
+      const purchaseUnits = [
+        {
+          reference_id: String(params.purchaseId).slice(0, 256),
+          custom_id: String(params.customId || params.purchaseId).slice(0, 127),
+          description: String(params.description || 'Coin package').slice(0, 127),
+          amount: {
+            currency_code: currency,
+            value,
+          },
+        },
+      ];
+
+      // SDK Card Fields / Buttons require create WITHOUT payment_source.
+      // Redirect fallback uses payment_source.paypal + GUEST_CHECKOUT.
+      const body: Record<string, unknown> = {
         intent: 'CAPTURE',
-        purchase_units: [
-          {
-            reference_id: String(params.purchaseId).slice(0, 256),
-            custom_id: String(params.customId || params.purchaseId).slice(0, 127),
-            description: String(params.description || 'Coin package').slice(0, 127),
-            amount: {
-              currency_code: currency,
-              value,
+        purchase_units: purchaseUnits,
+      };
+      if (checkoutMode === 'redirect') {
+        body.payment_source = {
+          paypal: {
+            payment_method_preference: 'UNRESTRICTED',
+            experience_context: {
+              brand_name: 'MingleCall',
+              landing_page: 'GUEST_CHECKOUT',
+              shipping_preference: 'NO_SHIPPING',
+              user_action: 'PAY_NOW',
+              return_url: params.returnUrl,
+              cancel_url: params.cancelUrl,
             },
           },
-        ],
-        application_context: {
-          brand_name: 'MingleCall',
-          landing_page: 'NO_PREFERENCE',
-          user_action: 'PAY_NOW',
-          return_url: params.returnUrl,
-          cancel_url: params.cancelUrl,
-        },
-      };
+        };
+      }
 
       const res = await fetch(`${apiBase(resolved.cfg.mode)}/v2/checkout/orders`, {
         method: 'POST',
@@ -152,14 +165,13 @@ export function createPayPalProvider(
         return { success: false, error: detail, code: 'PAYPAL_CREATE_FAILED' };
       }
 
-      const approvalUrl = (data.links || []).find((l) => l.rel === 'approve')?.href;
-      if (!approvalUrl) {
-        return {
-          success: false,
-          error: 'PayPal order missing approve link',
-          code: 'PAYPAL_NO_APPROVAL_URL',
-        };
-      }
+      const webBase =
+        resolved.cfg.mode === 'live' ? 'https://www.paypal.com' : 'https://www.sandbox.paypal.com';
+      const links = data.links || [];
+      const approvalUrl =
+        links.find((l) => l.rel === 'payer-action')?.href ||
+        links.find((l) => l.rel === 'approve')?.href ||
+        `${webBase}/checkoutnow?token=${encodeURIComponent(data.id)}`;
 
       return { success: true, externalRef: data.id, approvalUrl };
     },

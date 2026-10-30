@@ -32,6 +32,11 @@ export interface CreateCheckoutParams {
   cancelUrl: string;
   /** Opaque correlation id stored on the PSP order (usually purchaseId). */
   customId?: string;
+  /**
+   * sdk = order id for PayPal JS Card Fields / Buttons (no payment_source).
+   * redirect = payment_source.paypal GUEST_CHECKOUT + return/cancel URLs.
+   */
+  checkoutMode?: 'sdk' | 'redirect';
 }
 
 export interface CreateCheckoutResult {
