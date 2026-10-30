@@ -222,6 +222,7 @@ export const AdminDashboard: React.FC = () => {
     | 'team_leaders'
     | 'hosts'
     | 'funding'
+    | 'payment_gateways'
     | 'batches'
     | 'settlement'
     | 'period'

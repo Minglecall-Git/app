@@ -5667,7 +5667,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: 'Password updated successfully!' };
   };
 
-  // Buy Coins — server checkout intent only (never mutate coin_balance from the client)
+  // Buy Coins — Active gateway checkout (never mutate coin_balance from the client)
   const buyCoinPackage = (packageId: string) => {
     const pkg = coinPackages.find((p) => p.id === packageId);
     if (!pkg) return;
@@ -5681,17 +5681,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data?.success === false) {
+          const code = data?.error?.code || '';
+          const msg =
+            data?.error?.message ||
+            (typeof data?.error === 'string' ? data.error : '') ||
+            'Could not start coin purchase. Try again later.';
           showToast(
-            'Checkout unavailable',
-            data?.error?.message || data?.error || 'Could not start coin purchase. Try again later.',
+            code === 'NO_ACTIVE_GATEWAY' ? 'Payments temporarily unavailable' : 'Checkout unavailable',
+            msg,
             'error'
           );
           return;
         }
+        const payload = data?.data || data;
+        const approvalUrl = payload?.approvalUrl || payload?.approval_url;
+        if (approvalUrl && typeof approvalUrl === 'string') {
+          showToast('Redirecting to PayPal', 'Complete payment to credit coins.', 'info');
+          window.location.assign(approvalUrl);
+          return;
+        }
         showToast(
-          'Checkout started',
-          'Complete payment to credit coins. Balance updates only after server confirmation.',
-          'info'
+          'Checkout unavailable',
+          'Payment provider did not return a checkout URL.',
+          'error'
         );
       } catch {
         showToast('Purchase failed', 'Could not reach the funding API.', 'error');

@@ -7,6 +7,9 @@ const SENSITIVE_EXACT = new Set([
   'funding/admin-credit',
   'funding/checkout-intent',
   'funding/webhook/provider',
+  'funding/webhook/paypal',
+  'funding/paypal/capture',
+  'funding/paypal/cancel',
   'funding/simulate-gateway',
   'manual-payouts',
 ]);
@@ -16,6 +19,7 @@ const SENSITIVE_PREFIXES = [
   'tl/batches/', // reconcile, mark-paid, confirm-received
   'admin/salary-periods/', // mark-paid
   'host/salary/', // acknowledge
+  'admin/payment-gateways', // patch + activate
 ];
 
 export function isFinanceSensitivePath(sub: string, method: string): boolean {
@@ -33,6 +37,7 @@ export function isFinanceSensitivePath(sub: string, method: string): boolean {
       return true;
     if (prefix === 'admin/salary-periods/' && sub.endsWith('/mark-paid')) return true;
     if (prefix === 'host/salary/' && sub.endsWith('/acknowledge')) return true;
+    if (prefix === 'admin/payment-gateways') return true;
   }
   return false;
 }

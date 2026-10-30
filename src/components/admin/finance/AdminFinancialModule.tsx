@@ -36,6 +36,7 @@ import {
   type LiveWalletLedgerAggregates,
   type FinanceAdminSummary,
   postSimulateGatewayPurchase,
+  fetchPaymentGateways,
 } from '../../../services/financeApi';
 import {
   labelSettlementComponent,
@@ -45,6 +46,7 @@ import { HostPeriodEarningsBreakdown } from '../../finance/HostPeriodEarningsBre
 import { EarningsPeriodDashboard } from '../../finance/EarningsPeriodDashboard';
 import { AdminSalaryBatchesPage } from './AdminSalaryBatchesPage';
 import { AdminClosedAccountsQueue } from './AdminClosedAccountsQueue';
+import { AdminPaymentGatewaysPanel } from './AdminPaymentGatewaysPanel';
 
 type FinanceHubTab =
   | 'overview'
@@ -55,6 +57,7 @@ type FinanceHubTab =
   | 'team_leaders'
   | 'hosts'
   | 'funding'
+  | 'payment_gateways'
   | 'batches'
   | 'settlement'
   | 'period';
@@ -68,6 +71,7 @@ const TABS: { id: FinanceHubTab; label: string; icon: React.ReactNode }[] = [
   { id: 'team_leaders', label: 'Agency earnings', icon: <Building2 className="w-3.5 h-3.5" /> },
   { id: 'hosts', label: 'Host earnings', icon: <Users className="w-3.5 h-3.5" /> },
   { id: 'funding', label: 'Funding / Purchases', icon: <Coins className="w-3.5 h-3.5" /> },
+  { id: 'payment_gateways', label: 'Payment gateways', icon: <Banknote className="w-3.5 h-3.5" /> },
   { id: 'batches', label: 'Payout / settlement requests', icon: <Wallet className="w-3.5 h-3.5" /> },
   { id: 'settlement', label: 'Payment settlement', icon: <Banknote className="w-3.5 h-3.5" /> },
   { id: 'period', label: 'Period & close settings', icon: <CalendarClock className="w-3.5 h-3.5" /> },
@@ -146,6 +150,7 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
   const [simUserId, setSimUserId] = useState('');
   const [simPackageId, setSimPackageId] = useState('');
   const [simBusy, setSimBusy] = useState(false);
+  const [activeGatewayName, setActiveGatewayName] = useState<string | null>(null);
   const [liveLedgerRows, setLiveLedgerRows] = useState<LiveWalletLedgerRow[]>([]);
   const [liveLedgerAgg, setLiveLedgerAgg] = useState<LiveWalletLedgerAggregates | null>(null);
   const [liveLedgerLoading, setLiveLedgerLoading] = useState(false);
@@ -288,6 +293,12 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
     }
     if (tab === 'funding') {
       void loadFunding();
+      void (async () => {
+        const res = await fetchPaymentGateways();
+        if (res.success && res.data) {
+          setActiveGatewayName(res.data.activeGatewayName || null);
+        }
+      })();
     }
   }, [tab, loadFunding, loadLiveLedger]);
 
@@ -797,6 +808,8 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
       )}
 
       {/* Funding / Purchases — wallet_ledger PURCHASE + coin_purchases */}
+      {tab === 'payment_gateways' && <AdminPaymentGatewaysPanel />}
+
       {tab === 'funding' && (
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -827,11 +840,16 @@ export const AdminFinancialModule: React.FC<AdminFinancialModuleProps> = ({
               }
             />
           </div>
+          <div className="bg-[#161922] border border-emerald-900/40 rounded-2xl px-4 py-3 text-[11px] text-slate-300">
+            Active checkout gateway:{' '}
+            <span className="font-mono text-emerald-300">{activeGatewayName || '— none —'}</span>
+            <span className="text-slate-500"> · configure under Payment gateways</span>
+          </div>
           <div className="bg-[#161922] border border-indigo-900/40 rounded-2xl px-4 py-3">
               <div className="text-xs font-bold text-indigo-200">Simulate GATEWAY purchase (non-production)</div>
               <p className="text-[10px] text-slate-500 mt-1 font-mono">
-                createCheckoutIntent → completeCoinPurchase(GATEWAY) — same completer as admin-credit and the webhook stub.
-                Server rejects this route when NODE_ENV=production.
+                Bypass PSP — createCheckoutIntent → completeCoinPurchase(GATEWAY). Disabled when NODE_ENV=production.
+                Live checkout uses the Active gateway (Payment gateways tab).
               </p>
               <div className="mt-3 flex flex-wrap items-end gap-2">
                 <label className="flex flex-col gap-1 min-w-[160px]">

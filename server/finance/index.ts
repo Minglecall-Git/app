@@ -166,6 +166,7 @@ export {
   completeCoinPurchase,
   createCheckoutIntent,
   failCheckoutIntent,
+  attachCheckoutExternalRef,
   type CoinPurchaseChannel,
   type CoinPurchaseStatus,
   type CompleteCoinPurchaseInput,
@@ -173,6 +174,18 @@ export {
   type CheckoutIntentInput,
   type CheckoutIntentResult,
 } from './completeCoinPurchase';
+
+export {
+  listPaymentGateways,
+  getPaymentGateway,
+  getActivePaymentGateway,
+  updatePaymentGateway,
+  activatePaymentGateway,
+  resolveProvider,
+  serializeGatewayForAdmin,
+  gatewayHasSecrets,
+  maskSecretValue,
+} from './providers/registry';
 
 export {
   applyCreatorEarnCoins,

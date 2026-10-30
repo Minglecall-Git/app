@@ -335,8 +335,8 @@ export function fetchMyFunding(params?: { limit?: number; offset?: number }) {
   );
 }
 
-/** Create pending GATEWAY purchase from coin_packages SKU (no wallet credit yet). */
-export function postFundingCheckoutIntent(body: { packageId: string; provider?: string }) {
+/** Create pending GATEWAY purchase via the Active payment gateway (returns approvalUrl). */
+export function postFundingCheckoutIntent(body: { packageId: string }) {
   return financeRequest<{
     purchase: {
       id: string;
@@ -347,6 +347,7 @@ export function postFundingCheckoutIntent(body: { packageId: string; provider?: 
       amountUsd: number | null;
       packageId: string;
       paymentProvider: string;
+      externalRef?: string | null;
       createdAt: string;
     };
     package: {
@@ -358,11 +359,89 @@ export function postFundingCheckoutIntent(body: { packageId: string; provider?: 
       priceUsd: number;
     };
     checkoutToken: string;
+    approvalUrl?: string | null;
+    provider?: string;
+    providerDisplayName?: string;
     note?: string;
   }>('/funding/checkout-intent', {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+/** Capture PayPal order after user returns from approve URL. */
+export function postPayPalCapture(body: { purchaseId: string; orderId?: string; token?: string }) {
+  return financeRequest<{
+    purchaseId: string;
+    walletLedgerId?: string;
+    coinBalance?: number;
+    duplicate?: boolean;
+    status: string;
+    provider?: string;
+  }>('/funding/paypal/capture', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Mark pending PayPal checkout failed after user cancel. */
+export function postPayPalCancel(body: { purchaseId: string }) {
+  return financeRequest<{ purchaseId: string; status: string }>('/funding/paypal/cancel', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export type PaymentGatewayAdminRow = {
+  id: string;
+  displayName: string;
+  enabled: boolean;
+  isActive: boolean;
+  mode: 'sandbox' | 'live';
+  status: 'active' | 'inactive' | 'not_configured' | 'coming_soon';
+  configured: boolean;
+  comingSoon: boolean;
+  publicConfig: {
+    client_id?: string | null;
+    webhook_id?: string | null;
+    coming_soon?: boolean;
+  };
+  secrets: Record<string, string | null>;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+};
+
+export function fetchPaymentGateways() {
+  return financeRequest<{
+    gateways: PaymentGatewayAdminRow[];
+    activeGatewayId: string | null;
+    activeGatewayName: string | null;
+    webhookUrls: { paypal: string };
+    note?: string;
+  }>('/admin/payment-gateways');
+}
+
+export function patchPaymentGateway(
+  id: string,
+  body: {
+    enabled?: boolean;
+    mode?: 'sandbox' | 'live';
+    clientId?: string;
+    clientSecret?: string;
+    webhookId?: string;
+  }
+) {
+  return financeRequest<{ gateway: PaymentGatewayAdminRow }>(`/admin/payment-gateways/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function activatePaymentGateway(id: string) {
+  return financeRequest<{ gateway: PaymentGatewayAdminRow; activeGatewayId: string }>(
+    `/admin/payment-gateways/${encodeURIComponent(id)}/activate`,
+    { method: 'POST', body: JSON.stringify({}) }
+  );
 }
 
 /**

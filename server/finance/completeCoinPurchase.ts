@@ -75,10 +75,37 @@ export interface CheckoutIntentResult {
     totalCoins: number;
     priceUsd: number;
   };
-  /** Opaque token for future PSP session wiring (not a live payment URL). */
+  /** Opaque token identifying the pending intent. */
   checkoutToken?: string;
+  /** PSP approval / hosted checkout URL (e.g. PayPal). */
+  approvalUrl?: string | null;
   error?: string;
   code?: string;
+}
+
+/** Attach PSP order id after createCheckout succeeds. */
+export async function attachCheckoutExternalRef(opts: {
+  purchaseId: string;
+  externalRef: string;
+  provider?: string | null;
+  client?: SupabaseClient | null;
+}): Promise<{ success: boolean; error?: string; code?: string }> {
+  const client = resolveAdminClient(opts.client);
+  if (!client) return { success: false, error: 'Supabase admin unavailable', code: 'NO_ADMIN' };
+  const id = String(opts.purchaseId || '').trim();
+  const ref = String(opts.externalRef || '').trim();
+  if (!id || !ref) return { success: false, error: 'purchaseId and externalRef required', code: 'INVALID_INPUT' };
+
+  const patch: Record<string, unknown> = { external_ref: ref };
+  if (opts.provider) patch.payment_provider = String(opts.provider).trim();
+
+  const { error } = await client
+    .from('coin_purchases')
+    .update(patch)
+    .eq('id', id)
+    .eq('status', 'pending');
+  if (error) return { success: false, error: error.message, code: 'UPDATE_FAILED' };
+  return { success: true };
 }
 
 function purchasePegFields(amountCoins: number, amountUsd: number | null | undefined, peg: number) {
@@ -174,7 +201,10 @@ export async function createCheckoutIntent(
   const discountUsd = discountRaw == null ? NaN : Number(discountRaw);
   const payUsd = Number.isFinite(discountUsd) ? discountUsd : listUsd;
   const amountUsd = Number.isFinite(payUsd) ? payUsd : null;
-  const provider = (input.provider ? String(input.provider).trim() : 'stub') || 'stub';
+  const provider = input.provider ? String(input.provider).trim() : '';
+  if (!provider) {
+    return { success: false, error: 'No active payment gateway', code: 'NO_ACTIVE_GATEWAY' };
+  }
   const peg = await loadLiveCoinUsdPeg(client);
   const pegFields = purchasePegFields(totalCoins, amountUsd, peg);
 

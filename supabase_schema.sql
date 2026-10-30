@@ -2527,6 +2527,44 @@ COMMENT ON COLUMN public.coin_purchases.load_margin_usd IS
 
 ALTER TABLE public.coin_purchases ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================================
+-- 16.53 PAYMENT GATEWAYS — multi-PSP registry (exactly one is_active)
+-- Mutations via Express/Next service role only. Secrets never exposed to anon/authenticated.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.payment_gateways (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    mode TEXT NOT NULL DEFAULT 'sandbox' CHECK (mode IN ('sandbox', 'live')),
+    public_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    secrets_encrypted JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by TEXT REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+-- At most one active gateway
+CREATE UNIQUE INDEX IF NOT EXISTS payment_gateways_one_active_idx
+    ON public.payment_gateways ((is_active))
+    WHERE is_active = true;
+
+COMMENT ON TABLE public.payment_gateways IS
+  'Payment provider registry. Coin store uses the single is_active gateway. secrets_encrypted is service-role only; admin APIs return masked values.';
+
+ALTER TABLE public.payment_gateways ENABLE ROW LEVEL SECURITY;
+
+-- No client policies — reads/writes via service role in finance Route Handlers only.
+DROP POLICY IF EXISTS "admin select payment_gateways" ON public.payment_gateways;
+DROP POLICY IF EXISTS "deny all payment_gateways" ON public.payment_gateways;
+CREATE POLICY "deny all payment_gateways" ON public.payment_gateways
+  FOR ALL USING (false) WITH CHECK (false);
+
+INSERT INTO public.payment_gateways (id, display_name, enabled, is_active, mode, public_config, secrets_encrypted)
+VALUES
+  ('paypal', 'PayPal', false, false, 'sandbox', '{}'::jsonb, '{}'::jsonb),
+  ('stripe', 'Stripe', false, false, 'sandbox', '{"coming_soon": true}'::jsonb, '{}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
 DROP POLICY IF EXISTS "public select wallet_ledger" ON public.wallet_ledger;
 DROP POLICY IF EXISTS "service role manage wallet_ledger" ON public.wallet_ledger;
 DROP POLICY IF EXISTS "authenticated insert wallet_ledger" ON public.wallet_ledger;

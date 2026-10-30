@@ -38,6 +38,14 @@ import {
   completeCoinPurchase,
   createCheckoutIntent,
   failCheckoutIntent,
+  attachCheckoutExternalRef,
+  getActivePaymentGateway,
+  listPaymentGateways,
+  updatePaymentGateway,
+  activatePaymentGateway,
+  resolveProvider,
+  serializeGatewayForAdmin,
+  getPaymentGateway,
   getCoinUsdPeg,
   coinsToUsd,
   aggregateWalletLedgerEarnings,
@@ -76,6 +84,28 @@ function sendOk(data: unknown, status = 200) {
 
 function requireDb() {
   return createServiceClient();
+}
+
+function appBaseUrl(req: NextRequest): string {
+  const env =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    process.env.PUBLIC_APP_URL ||
+    '';
+  if (env.trim()) return env.trim().replace(/\/$/, '');
+  try {
+    return req.nextUrl.origin.replace(/\/$/, '');
+  } catch {
+    return 'http://localhost:3000';
+  }
+}
+
+function requestHeadersRecord(req: NextRequest): Record<string, string> {
+  const out: Record<string, string> = {};
+  req.headers.forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
 }
 
 function timingSafeEqualString(a: string, b: string): boolean {
@@ -865,6 +895,109 @@ export async function dispatchFinance(
     }
 
     // -----------------------------------------------------------------------
+    // PAYMENT GATEWAYS (admin)
+    // -----------------------------------------------------------------------
+    if (sub === 'admin/payment-gateways' && method === 'GET') {
+      const auth = await requireAdmin(req);
+      if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+
+      const listed = await listPaymentGateways(client);
+      if (!listed.success || !listed.gateways) {
+        return sendError(500, listed.error || 'Failed to load gateways', 'GATEWAY_LIST_FAILED');
+      }
+
+      const active = listed.gateways.find((g) => g.is_active) || null;
+      return sendOk({
+        gateways: listed.gateways.map(serializeGatewayForAdmin),
+        activeGatewayId: active?.id || null,
+        activeGatewayName: active?.display_name || null,
+        webhookUrls: {
+          paypal: `${appBaseUrl(req)}/api/v1/finance/funding/webhook/paypal`,
+        },
+        note: 'Coin store uses the Active gateway. Manual coin credit remains available.',
+      });
+    }
+
+    if (sub.match(/^admin\/payment-gateways\/[^/]+$/) && method === 'PATCH') {
+      const auth = await requireAdmin(req);
+      if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+      const actorAdminId = authProfileId(auth as AuthOk);
+
+      const gatewayId = decodeURIComponent(sub.split('/')[2] || '').trim();
+      if (!gatewayId) return sendError(400, 'gateway id required', 'INVALID_ID');
+
+      const modeRaw = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : '';
+      const mode = modeRaw === 'live' || modeRaw === 'sandbox' ? (modeRaw as 'live' | 'sandbox') : undefined;
+      const enabled = typeof body.enabled === 'boolean' ? body.enabled : undefined;
+
+      const publicConfig: Record<string, unknown> = {};
+      if (typeof body.clientId === 'string') publicConfig.client_id = body.clientId;
+      else if (typeof body.client_id === 'string') publicConfig.client_id = body.client_id;
+      if (typeof body.webhookId === 'string') publicConfig.webhook_id = body.webhookId;
+      else if (typeof body.webhook_id === 'string') publicConfig.webhook_id = body.webhook_id;
+      if (body.publicConfig && typeof body.publicConfig === 'object') {
+        Object.assign(publicConfig, body.publicConfig as Record<string, unknown>);
+      }
+
+      const secrets: Record<string, string | null | undefined> = {};
+      if (typeof body.clientSecret === 'string') secrets.client_secret = body.clientSecret;
+      else if (typeof body.client_secret === 'string') secrets.client_secret = body.client_secret;
+      if (typeof body.clientId === 'string') secrets.client_id = body.clientId;
+      else if (typeof body.client_id === 'string') secrets.client_id = body.client_id;
+      if (typeof body.webhookId === 'string') secrets.webhook_id = body.webhookId;
+      else if (typeof body.webhook_id === 'string') secrets.webhook_id = body.webhook_id;
+      if (body.secrets && typeof body.secrets === 'object') {
+        Object.assign(secrets, body.secrets as Record<string, string>);
+      }
+
+      const updated = await updatePaymentGateway(client, gatewayId, {
+        enabled,
+        mode,
+        public_config: Object.keys(publicConfig).length ? publicConfig : undefined,
+        secrets: Object.keys(secrets).length ? secrets : undefined,
+        updated_by: actorAdminId || null,
+      });
+
+      if (!updated.success || !updated.gateway) {
+        const st =
+          updated.code === 'NOT_FOUND' ? 404 : updated.code === 'COMING_SOON' ? 400 : 500;
+        return sendError(st, updated.error || 'Update failed', updated.code || 'GATEWAY_UPDATE_FAILED');
+      }
+
+      return sendOk({ gateway: serializeGatewayForAdmin(updated.gateway) });
+    }
+
+    if (sub.match(/^admin\/payment-gateways\/[^/]+\/activate$/) && method === 'POST') {
+      const auth = await requireAdmin(req);
+      if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+      const actorAdminId = authProfileId(auth as AuthOk);
+
+      const gatewayId = decodeURIComponent(sub.split('/')[2] || '').trim();
+      if (!gatewayId) return sendError(400, 'gateway id required', 'INVALID_ID');
+
+      const activated = await activatePaymentGateway(client, gatewayId, actorAdminId || null);
+      if (!activated.success || !activated.gateway) {
+        const st =
+          activated.code === 'NOT_FOUND'
+            ? 404
+            : activated.code === 'COMING_SOON' ||
+                activated.code === 'NOT_ENABLED' ||
+                activated.code === 'NOT_CONFIGURED'
+              ? 400
+              : 500;
+        return sendError(st, activated.error || 'Activate failed', activated.code || 'GATEWAY_ACTIVATE_FAILED');
+      }
+
+      return sendOk({
+        gateway: serializeGatewayForAdmin(activated.gateway),
+        activeGatewayId: activated.gateway.id,
+      });
+    }
+
+    // -----------------------------------------------------------------------
     // FUNDING
     // -----------------------------------------------------------------------
     if (sub === 'funding/admin-credit' && method === 'POST') {
@@ -1019,19 +1152,33 @@ export async function dispatchFinance(
           : typeof body.package_id === 'string'
             ? body.package_id.trim()
             : '';
-      const provider =
-        typeof body.provider === 'string' && body.provider.trim()
-          ? body.provider.trim().slice(0, 64)
-          : 'stub';
 
       if (!packageId) return sendError(400, 'packageId required', 'INVALID_PACKAGE');
 
-      const result = await createCheckoutIntent({ userId, packageId, provider });
-      if (!result.success) {
+      const activeRes = await getActivePaymentGateway(client);
+      if (!activeRes.success) {
+        return sendError(500, activeRes.error || 'Gateway lookup failed', 'GATEWAY_LOOKUP_FAILED');
+      }
+      const active = activeRes.gateway;
+      if (!active) {
+        return sendError(
+          503,
+          'Payments temporarily unavailable — no active payment gateway',
+          'NO_ACTIVE_GATEWAY'
+        );
+      }
+
+      const providerImpl = resolveProvider(active);
+      if (!providerImpl) {
+        return sendError(503, 'Active gateway is not supported yet', 'GATEWAY_UNSUPPORTED');
+      }
+
+      const result = await createCheckoutIntent({ userId, packageId, provider: active.id });
+      if (!result.success || !result.purchase) {
         const status =
           result.code === 'PACKAGE_NOT_FOUND' || result.code === 'NOT_FOUND'
             ? 404
-            : result.code === 'INVALID_PACKAGE' || result.code === 'INVALID_USER'
+            : result.code === 'INVALID_PACKAGE' || result.code === 'INVALID_USER' || result.code === 'NO_ACTIVE_GATEWAY'
               ? 400
               : 500;
         return sendError(status,
@@ -1040,15 +1187,311 @@ export async function dispatchFinance(
         );
       }
 
+      const amountUsd = Number(result.purchase.amountUsd);
+      if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+        await failCheckoutIntent({
+          purchaseId: result.purchase.id,
+          reason: 'Package has no payable USD amount',
+          provider: active.id,
+        });
+        return sendError(400, 'Package has no payable USD amount', 'INVALID_AMOUNT');
+      }
+
+      const base = appBaseUrl(req);
+      const returnUrl = `${base}/store/paypal/return?purchaseId=${encodeURIComponent(result.purchase.id)}`;
+      const cancelUrl = `${base}/store/paypal/cancel?purchaseId=${encodeURIComponent(result.purchase.id)}`;
+
+      const checkout = await providerImpl.createCheckout({
+        purchaseId: result.purchase.id,
+        amountUsd,
+        currency: 'USD',
+        description: result.package?.title || `Coins · ${packageId}`,
+        returnUrl,
+        cancelUrl,
+        customId: result.purchase.id,
+      });
+
+      if (!checkout.success || !checkout.approvalUrl || !checkout.externalRef) {
+        await failCheckoutIntent({
+          purchaseId: result.purchase.id,
+          reason: checkout.error || 'Gateway checkout create failed',
+          provider: active.id,
+        });
+        return sendError(
+          502,
+          checkout.error || 'Could not create payment session',
+          checkout.code || 'CHECKOUT_CREATE_FAILED'
+        );
+      }
+
+      const attached = await attachCheckoutExternalRef({
+        purchaseId: result.purchase.id,
+        externalRef: checkout.externalRef,
+        provider: active.id,
+      });
+      if (!attached.success) {
+        return sendError(500, attached.error || 'Failed to store payment reference', attached.code || 'ATTACH_REF_FAILED');
+      }
+
       return sendOk({
-          purchase: result.purchase,
+          purchase: {
+            ...result.purchase,
+            paymentProvider: active.id,
+            externalRef: checkout.externalRef,
+          },
           package: result.package,
           checkoutToken: result.checkoutToken,
-          note:
-            'Skeleton checkout — no live PSP. Complete via POST /funding/webhook/provider or admin simulate-gateway.',
+          approvalUrl: checkout.approvalUrl,
+          provider: active.id,
+          providerDisplayName: active.display_name,
         },
         201
       );
+    }
+
+    if (sub === 'funding/paypal/cancel' && method === 'POST') {
+      const auth = await requireAuth(req);
+      if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+      const userId = authProfileId(auth as AuthOk);
+      if (!userId) return sendError(401, 'Unauthorized', 'UNAUTHORIZED');
+
+      const purchaseId =
+        typeof body.purchaseId === 'string'
+          ? body.purchaseId.trim()
+          : typeof body.purchase_id === 'string'
+            ? body.purchase_id.trim()
+            : '';
+      if (!purchaseId) return sendError(400, 'purchaseId required', 'INVALID_ID');
+
+      const { data: pending } = await client
+        .from('coin_purchases')
+        .select('id, user_id, status, payment_provider, external_ref')
+        .eq('id', purchaseId)
+        .maybeSingle();
+      if (!pending) return sendError(404, 'Purchase not found', 'NOT_FOUND');
+      if (String(pending.user_id) !== userId) return sendError(403, 'Not your purchase', 'FORBIDDEN');
+      if (String(pending.status) === 'completed') {
+        return sendError(409, 'Purchase already completed', 'ALREADY_COMPLETED');
+      }
+
+      const failed = await failCheckoutIntent({
+        purchaseId,
+        reason: 'User cancelled PayPal checkout',
+        provider: pending.payment_provider || 'paypal',
+        externalRef: pending.external_ref,
+      });
+      if (!failed.success) {
+        return sendError(400, failed.error || 'Cancel failed', failed.code || 'CANCEL_FAILED');
+      }
+      return sendOk({ purchaseId, status: 'failed' });
+    }
+
+    if (sub === 'funding/paypal/capture' && method === 'POST') {
+      const auth = await requireAuth(req);
+      if (auth.ok === false) return jsonErr(auth.status, auth.error.message, auth.error.code);
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+      const userId = authProfileId(auth as AuthOk);
+      if (!userId) return sendError(401, 'Unauthorized', 'UNAUTHORIZED');
+
+      const purchaseId =
+        typeof body.purchaseId === 'string'
+          ? body.purchaseId.trim()
+          : typeof body.purchase_id === 'string'
+            ? body.purchase_id.trim()
+            : '';
+      const orderId =
+        typeof body.orderId === 'string'
+          ? body.orderId.trim()
+          : typeof body.token === 'string'
+            ? body.token.trim()
+            : typeof body.externalRef === 'string'
+              ? body.externalRef.trim()
+              : typeof body.external_ref === 'string'
+                ? body.external_ref.trim()
+                : '';
+
+      if (!purchaseId) return sendError(400, 'purchaseId required', 'INVALID_ID');
+
+      const { data: pending } = await client
+        .from('coin_purchases')
+        .select('*')
+        .eq('id', purchaseId)
+        .maybeSingle();
+      if (!pending) return sendError(404, 'Purchase intent not found', 'NOT_FOUND');
+      if (String(pending.user_id) !== userId) {
+        return sendError(403, 'Not your purchase', 'FORBIDDEN');
+      }
+      if (String(pending.channel) !== 'GATEWAY') {
+        return sendError(400, 'Not a gateway purchase', 'INVALID_CHANNEL');
+      }
+      if (String(pending.status) === 'completed') {
+        return sendOk({
+          purchaseId,
+          status: 'completed',
+          coinBalance: undefined,
+          duplicate: true,
+        });
+      }
+      if (String(pending.status) !== 'pending') {
+        return sendError(409, `Purchase status is ${pending.status}`, 'INVALID_STATUS');
+      }
+
+      const providerId = String(pending.payment_provider || 'paypal');
+      const gwRes = await getPaymentGateway(client, providerId);
+      const gateway = gwRes.gateway;
+      if (!gateway) return sendError(503, 'Payment gateway not found', 'GATEWAY_NOT_FOUND');
+      const providerImpl = resolveProvider(gateway);
+      if (!providerImpl) return sendError(503, 'Gateway unsupported', 'GATEWAY_UNSUPPORTED');
+
+      const externalRef = orderId || String(pending.external_ref || '').trim();
+      if (!externalRef) return sendError(400, 'PayPal order id required', 'INVALID_EXTERNAL_REF');
+
+      const captured = await providerImpl.captureOrVerify({
+        externalRef,
+        purchaseId,
+      });
+      if (!captured.success) {
+        return sendError(
+          402,
+          captured.error || 'Payment capture failed',
+          captured.code || 'CAPTURE_FAILED'
+        );
+      }
+
+      const result = await completeCoinPurchase({
+        purchaseId,
+        userId,
+        amountCoins: Number(pending.amount_coins) || 0,
+        channel: 'GATEWAY',
+        amountUsd: pending.amount_usd != null ? Number(pending.amount_usd) : undefined,
+        packageId: pending.package_id,
+        provider: providerId,
+        externalRef: captured.externalRef || externalRef,
+        reason: pending.reason || 'PayPal purchase',
+      });
+
+      if (!result.success) {
+        const st =
+          result.code === 'NOT_FOUND'
+            ? 404
+            : result.code === 'INVALID_STATUS' || result.code === 'DUPLICATE'
+              ? 409
+              : 500;
+        return sendError(st, result.error || 'Capture complete failed', result.code || 'CAPTURE_COMPLETE_FAILED');
+      }
+
+      return sendOk({
+        purchaseId: result.purchaseId,
+        walletLedgerId: result.walletLedgerId,
+        coinBalance: result.coinBalance,
+        duplicate: result.duplicate === true,
+        status: 'completed',
+        provider: providerId,
+      });
+    }
+
+    if (sub === 'funding/webhook/paypal' && method === 'POST') {
+      const client = requireDb(); if (!client) return sendError(503, "Finance backend unavailable", "NO_ADMIN");
+
+      const gwRes = await getPaymentGateway(client, 'paypal');
+      if (!gwRes.success || !gwRes.gateway) {
+        return sendError(503, 'PayPal gateway not configured', 'GATEWAY_NOT_FOUND');
+      }
+      const providerImpl = resolveProvider(gwRes.gateway);
+      if (!providerImpl) return sendError(503, 'PayPal provider unavailable', 'GATEWAY_UNSUPPORTED');
+
+      const parsed = await providerImpl.parseWebhook(requestHeadersRecord(req), body);
+      if (!parsed.ok) {
+        const st = parsed.code === 'WEBHOOK_AUTH_FAILED' ? 401 : 400;
+        return sendError(st, parsed.error || 'Webhook rejected', parsed.code || 'WEBHOOK_REJECTED');
+      }
+
+      if (!parsed.shouldComplete && !parsed.shouldFail) {
+        return sendOk({ ignored: true, eventType: parsed.eventType });
+      }
+
+      let purchaseId = parsed.purchaseId ? String(parsed.purchaseId).trim() : '';
+      const externalRef = parsed.externalRef ? String(parsed.externalRef).trim() : '';
+
+      let pending: Record<string, unknown> | null = null;
+      if (purchaseId) {
+        const { data } = await client.from('coin_purchases').select('*').eq('id', purchaseId).maybeSingle();
+        pending = data as Record<string, unknown> | null;
+      }
+      if (!pending && externalRef) {
+        const { data } = await client
+          .from('coin_purchases')
+          .select('*')
+          .eq('payment_provider', 'paypal')
+          .eq('external_ref', externalRef)
+          .maybeSingle();
+        pending = data as Record<string, unknown> | null;
+        if (pending) purchaseId = String(pending.id);
+      }
+
+      if (!pending || !purchaseId) {
+        return sendError(404, 'Purchase intent not found for webhook', 'NOT_FOUND');
+      }
+
+      if (parsed.shouldFail) {
+        const failed = await failCheckoutIntent({
+          purchaseId,
+          reason: parsed.reason || 'PayPal payment failed',
+          provider: 'paypal',
+          externalRef: externalRef || null,
+        });
+        if (!failed.success && failed.code !== 'ALREADY_COMPLETED') {
+          return sendError(400, failed.error || 'Fail intent failed', failed.code || 'WEBHOOK_FAIL');
+        }
+        return sendOk({ purchaseId, status: 'failed', eventType: parsed.eventType });
+      }
+
+      // Ensure capture before credit (APPROVED may arrive before return URL capture)
+      if (externalRef || pending.external_ref) {
+        const orderId = externalRef || String(pending.external_ref || '');
+        const captured = await providerImpl.captureOrVerify({
+          externalRef: orderId,
+          purchaseId,
+        });
+        if (!captured.success) {
+          return sendError(
+            402,
+            captured.error || 'PayPal capture failed',
+            captured.code || 'CAPTURE_FAILED'
+          );
+        }
+      }
+
+      const result = await completeCoinPurchase({
+        purchaseId,
+        userId: String(pending.user_id),
+        amountCoins: Number(pending.amount_coins) || 0,
+        channel: 'GATEWAY',
+        amountUsd: pending.amount_usd != null ? Number(pending.amount_usd) : undefined,
+        packageId: pending.package_id != null ? String(pending.package_id) : null,
+        provider: 'paypal',
+        externalRef: externalRef || String(pending.external_ref || `paypal_${purchaseId}`),
+        reason: pending.reason != null ? String(pending.reason) : 'PayPal webhook',
+      });
+
+      if (!result.success) {
+        const st =
+          result.code === 'NOT_FOUND'
+            ? 404
+            : result.code === 'INVALID_STATUS' || result.code === 'DUPLICATE'
+              ? 409
+              : 500;
+        return sendError(st, result.error || 'Webhook complete failed', result.code || 'WEBHOOK_COMPLETE_FAILED');
+      }
+
+      return sendOk({
+        purchaseId: result.purchaseId,
+        walletLedgerId: result.walletLedgerId,
+        coinBalance: result.coinBalance,
+        duplicate: result.duplicate === true,
+        eventType: parsed.eventType,
+      });
     }
 
     if (sub === 'funding/webhook/provider' && method === 'POST') {

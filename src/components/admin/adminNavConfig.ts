@@ -176,6 +176,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
           { id: 'team_leaders', label: 'Agency earnings', icon: 'Building2' },
           { id: 'hosts', label: 'Host earnings', icon: 'Users' },
           { id: 'funding', label: 'Funding / Purchases', icon: 'Coins' },
+          { id: 'payment_gateways', label: 'Payment gateways', icon: 'Banknote' },
           { id: 'batches', label: 'Payout / settlement requests', icon: 'Wallet' },
           { id: 'settlement', label: 'Payment settlement', icon: 'Banknote' },
           { id: 'period', label: 'Period & close settings', icon: 'CalendarClock' },
