@@ -1123,14 +1123,21 @@ export async function dispatchFinance(
 
       const limit = Math.min(Math.max(Number(qstr(req, 'limit')) || 50, 1), 200);
       const offset = Math.max(Number(qstr(req, 'offset')) || 0, 0);
+      // Optional filter; default = all statuses so users see pending/failed/success
+      const statusFilter = qstr(req, 'status').toLowerCase();
+      const allowedStatus = new Set(['pending', 'completed', 'failed', 'refunded']);
 
-      const { data, error } = await client
+      let q = client
         .from('coin_purchases')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'completed')
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
+      if (statusFilter && allowedStatus.has(statusFilter)) {
+        q = q.eq('status', statusFilter);
+      }
+
+      const { data, error } = await q;
       if (error) return sendError(500, error.message, 'FUNDING_MINE_FAILED');
 
       return sendOk({

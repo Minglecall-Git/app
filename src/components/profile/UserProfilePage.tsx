@@ -78,6 +78,7 @@ import {
   ProfileNavItem,
   ProfileSectionKey,
 } from './profileNavConfig';
+import { CoinPurchaseHistory } from '../store/CoinPurchaseHistory';
 
 const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400',
@@ -2011,6 +2012,8 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                   Coins are spent per minute on 1-on-1 private video calls and for sending virtual gifts.
                 </p>
               </div>
+
+              <CoinPurchaseHistory />
             </div>
           )}
         </div>

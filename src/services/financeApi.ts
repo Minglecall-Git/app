@@ -329,7 +329,12 @@ export function fetchFinanceFunding(params?: {
   );
 }
 
-export function fetchMyFunding(params?: { limit?: number; offset?: number }) {
+export function fetchMyFunding(params?: {
+  limit?: number;
+  offset?: number;
+  /** Optional: pending | completed | failed | refunded. Omit for all. */
+  status?: string;
+}) {
   return financeRequest<{ purchases: CoinPurchaseRow[]; pagination: { limit: number; offset: number; count: number } }>(
     `/funding/mine${qs(params)}`
   );
