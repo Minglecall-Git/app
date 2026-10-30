@@ -59,6 +59,8 @@ export const AdminSeoBrandingCms: React.FC = () => {
           themeColor: draft.themeColor,
           ga4MeasurementId: draft.ga4MeasurementId,
           gscVerificationContent: draft.gscVerificationContent,
+          headerScripts: draft.headerScripts,
+          footerScripts: draft.footerScripts,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -70,7 +72,7 @@ export const AdminSeoBrandingCms: React.FC = () => {
       await reloadSiteBranding?.();
       showToast(
         'SEO saved',
-        'Branding, GA4, and Search Console settings updated. Reload for tracking scripts.',
+        'Branding, tracking, and header/footer scripts updated. Reload for scripts to apply.',
         'success'
       );
     } finally {
@@ -87,9 +89,8 @@ export const AdminSeoBrandingCms: React.FC = () => {
             SEO & branding
           </h3>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Edit browser tab title, meta description, favicon, app logo, social preview image,
-            Google Analytics 4, and Search Console verification. Tracking scripts apply on the
-            next full page load after save.
+            Edit browser tab title, meta, brand assets, GA4/GSC, and site-wide header/footer
+            script snippets (e.g. full Google tag). Scripts apply on every page after a full reload.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -272,6 +273,54 @@ export const AdminSeoBrandingCms: React.FC = () => {
         </label>
       </div>
 
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 space-y-3">
+        <h4 className="text-sm font-bold text-white">Header &amp; footer scripts (every page)</h4>
+        <p className="text-xs text-slate-400">
+          Paste raw HTML/JS snippets. Header goes into{' '}
+          <code className="text-slate-400">&lt;head&gt;</code>; footer runs before{' '}
+          <code className="text-slate-400">&lt;/body&gt;</code>. Leave empty to skip. Example for
+          Header scripts:
+        </p>
+        <pre className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-[10px] text-slate-400 font-mono overflow-x-auto whitespace-pre-wrap">{`<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-XXXXXXXXXX');
+</script>`}</pre>
+        <label className="block space-y-1">
+          <span className="text-[10px] uppercase text-slate-500 font-semibold">
+            Header scripts (&lt;head&gt;)
+          </span>
+          <textarea
+            value={draft.headerScripts || ''}
+            onChange={(e) => setDraft({ ...draft, headerScripts: e.target.value })}
+            rows={8}
+            spellCheck={false}
+            placeholder={'<!-- Google tag (gtag.js) -->\n<script async src="https://www.googletagmanager.com/gtag/js?id=G-..."></script>\n<script>...</script>'}
+            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono leading-relaxed"
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-[10px] uppercase text-slate-500 font-semibold">
+            Footer scripts (before &lt;/body&gt;)
+          </span>
+          <textarea
+            value={draft.footerScripts || ''}
+            onChange={(e) => setDraft({ ...draft, footerScripts: e.target.value })}
+            rows={6}
+            spellCheck={false}
+            placeholder="<!-- Optional pixels / chat widgets -->"
+            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white font-mono leading-relaxed"
+          />
+        </label>
+        <p className="text-[10px] text-amber-400/90">
+          Tip: If you paste the full Google tag into Header scripts, you can leave the GA4
+          Measurement ID field empty to avoid loading gtag twice.
+        </p>
+      </div>
+
       <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
         <p className="text-[10px] uppercase text-slate-500 font-semibold mb-2">Preview</p>
         <div className="flex items-start gap-3">
@@ -288,11 +337,19 @@ export const AdminSeoBrandingCms: React.FC = () => {
               {draft.metaDescription || '—'}
             </p>
             <p className="text-[10px] text-slate-500 mt-1 font-mono">{draft.siteName}</p>
-            {(draft.ga4MeasurementId || draft.gscVerificationContent) && (
+            {(draft.ga4MeasurementId ||
+              draft.gscVerificationContent ||
+              draft.headerScripts ||
+              draft.footerScripts) && (
               <p className="text-[10px] text-emerald-500/80 mt-1 font-mono">
-                {draft.ga4MeasurementId ? `GA4 ${draft.ga4MeasurementId}` : null}
-                {draft.ga4MeasurementId && draft.gscVerificationContent ? ' · ' : null}
-                {draft.gscVerificationContent ? 'GSC meta set' : null}
+                {[
+                  draft.ga4MeasurementId ? `GA4 ${draft.ga4MeasurementId}` : '',
+                  draft.gscVerificationContent ? 'GSC meta' : '',
+                  draft.headerScripts?.trim() ? 'Header scripts' : '',
+                  draft.footerScripts?.trim() ? 'Footer scripts' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </p>
             )}
           </div>

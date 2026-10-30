@@ -854,6 +854,9 @@ CREATE TABLE IF NOT EXISTS public.cms_site_branding (
     ga4_measurement_id TEXT,
     -- Google Search Console verification: meta content value only (not the full <meta> tag).
     gsc_verification_content TEXT,
+    -- Raw HTML/JS snippets injected site-wide (Admin paste: Google tag, pixels, etc.).
+    header_scripts TEXT,
+    footer_scripts TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -862,6 +865,10 @@ ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS ga4_measurement_id TEXT;
 ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS gsc_verification_content TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS header_scripts TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS footer_scripts TEXT;
 
 ALTER TABLE public.cms_site_branding ENABLE ROW LEVEL SECURITY;
 

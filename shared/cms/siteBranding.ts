@@ -16,6 +16,10 @@ export type SiteBranding = {
   ga4MeasurementId: string;
   /** google-site-verification meta content value. Empty = no GSC meta. */
   gscVerificationContent: string;
+  /** Raw HTML for &lt;head&gt; (e.g. full Google tag / gtag.js snippet). */
+  headerScripts: string;
+  /** Raw HTML before &lt;/body&gt; (pixels, chat widgets, etc.). */
+  footerScripts: string;
   updatedAt?: string | null;
 };
 
@@ -31,11 +35,15 @@ export const DEFAULT_SITE_BRANDING: SiteBranding = {
   themeColor: '#09090C',
   ga4MeasurementId: '',
   gscVerificationContent: '',
+  headerScripts: '',
+  footerScripts: '',
   updatedAt: null,
 };
 
 const GA4_ID_RE = /^G-[A-Z0-9]+$/i;
 const GSC_CONTENT_MAX = 200;
+/** Max length for admin-pasted header/footer HTML snippets. */
+export const CUSTOM_SCRIPTS_MAX = 50_000;
 
 /**
  * Accept `G-XXXXXXXXXX` (case-insensitive). Returns normalized uppercase ID or ''.
@@ -72,12 +80,25 @@ export function normalizeGscVerificationContent(raw: unknown): string | null {
   return s;
 }
 
+/**
+ * Normalize custom HTML snippets. Empty → ''. Oversize → null (reject save).
+ * Allows comments, script/meta/link/noscript tags (admin-only field).
+ */
+export function normalizeCustomScripts(raw: unknown): string | null {
+  const s = String(raw ?? '');
+  if (!s.trim()) return '';
+  if (s.length > CUSTOM_SCRIPTS_MAX) return null;
+  return s;
+}
+
 export function mapSiteBrandingRow(row: any | null | undefined): SiteBranding {
   if (!row) return { ...DEFAULT_SITE_BRANDING };
   const ga4Raw = row.ga4_measurement_id ?? row.ga4MeasurementId ?? '';
   const gscRaw = row.gsc_verification_content ?? row.gscVerificationContent ?? '';
   const ga4 = normalizeGa4MeasurementId(ga4Raw);
   const gsc = normalizeGscVerificationContent(gscRaw);
+  const headerScripts = normalizeCustomScripts(row.header_scripts ?? row.headerScripts) || '';
+  const footerScripts = normalizeCustomScripts(row.footer_scripts ?? row.footerScripts) || '';
   return {
     id: String(row.id || 'default'),
     pageTitle: String(row.page_title ?? row.pageTitle ?? DEFAULT_SITE_BRANDING.pageTitle).trim()
@@ -95,6 +116,8 @@ export function mapSiteBrandingRow(row: any | null | undefined): SiteBranding {
       || DEFAULT_SITE_BRANDING.themeColor,
     ga4MeasurementId: ga4 || '',
     gscVerificationContent: gsc || '',
+    headerScripts,
+    footerScripts,
     updatedAt: row.updated_at ?? row.updatedAt ?? null,
   };
 }

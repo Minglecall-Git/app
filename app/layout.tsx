@@ -5,6 +5,7 @@ import '../src/index.css';
 import { DEFAULT_SITE_BRANDING } from '../shared/cms/siteBranding';
 import { fetchSiteBrandingServer } from '../lib/cms/fetchSiteBrandingServer';
 import { Ga4PageViews } from '../src/components/analytics/Ga4PageViews';
+import { SiteHtmlInject } from '../src/components/analytics/SiteHtmlInject';
 
 /** Static defaults; runtime CMS overlays via generateMetadata + AppContext. */
 export async function generateMetadata(): Promise<Metadata> {
@@ -40,6 +41,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const branding = await fetchSiteBrandingServer();
   const ga4Id = branding.ga4MeasurementId;
   const gscContent = branding.gscVerificationContent;
+  const headerScripts = branding.headerScripts?.trim() || '';
+  const footerScripts = branding.footerScripts?.trim() || '';
   const themeColor = branding.themeColor || DEFAULT_SITE_BRANDING.themeColor;
 
   return (
@@ -57,7 +60,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         ) : null}
       </head>
       <body>
+        {headerScripts ? (
+          <SiteHtmlInject html={headerScripts} target="head" markerId="cms-header-scripts" />
+        ) : null}
         {children}
+        {footerScripts ? (
+          <SiteHtmlInject html={footerScripts} target="body" markerId="cms-footer-scripts" />
+        ) : null}
         {ga4Id ? (
           <>
             <Script

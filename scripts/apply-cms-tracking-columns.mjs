@@ -18,6 +18,10 @@ ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS ga4_measurement_id TEXT;
 ALTER TABLE public.cms_site_branding
   ADD COLUMN IF NOT EXISTS gsc_verification_content TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS header_scripts TEXT;
+ALTER TABLE public.cms_site_branding
+  ADD COLUMN IF NOT EXISTS footer_scripts TEXT;
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -83,7 +87,12 @@ async function main() {
     FROM information_schema.columns
     WHERE table_schema = 'public'
       AND table_name = 'cms_site_branding'
-      AND column_name IN ('ga4_measurement_id', 'gsc_verification_content')
+      AND column_name IN (
+        'ga4_measurement_id',
+        'gsc_verification_content',
+        'header_scripts',
+        'footer_scripts'
+      )
     ORDER BY column_name;
   `
   );

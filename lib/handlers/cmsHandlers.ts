@@ -18,6 +18,7 @@ import { DEFAULT_FEEDBACK_CATALOG } from '../../shared/cms/feedbackCatalog';
 import {
   DEFAULT_SITE_BRANDING,
   mapSiteBrandingRow,
+  normalizeCustomScripts,
   normalizeGa4MeasurementId,
   normalizeGscVerificationContent,
 } from '../../shared/cms/siteBranding';
@@ -926,6 +927,24 @@ async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
           error: 'Invalid Google Search Console verification content',
         });
       }
+      const headerScripts = normalizeCustomScripts(
+        body.headerScripts ?? body.header_scripts
+      );
+      if (headerScripts === null) {
+        return err(400, {
+          success: false,
+          error: 'Header scripts snippet is too large (max 50KB)',
+        });
+      }
+      const footerScripts = normalizeCustomScripts(
+        body.footerScripts ?? body.footer_scripts
+      );
+      if (footerScripts === null) {
+        return err(400, {
+          success: false,
+          error: 'Footer scripts snippet is too large (max 50KB)',
+        });
+      }
       for (const [label, url] of [
         ['logoUrl', logoUrl],
         ['faviconUrl', faviconUrl],
@@ -946,6 +965,8 @@ async function cms_PUT_cms_seo_branding(auth: AuthOk, params: {  }, body: Record
         theme_color: themeColor.slice(0, 32),
         ga4_measurement_id: ga4MeasurementId || null,
         gsc_verification_content: gscVerificationContent || null,
+        header_scripts: headerScripts || null,
+        footer_scripts: footerScripts || null,
         updated_at: new Date().toISOString(),
       };
       const client = getSupabaseAdmin()!;

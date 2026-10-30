@@ -34,7 +34,7 @@ export async function fetchSiteBrandingServer(): Promise<SiteBranding> {
     const { data, error } = await anon
       .from('cms_site_branding')
       .select(
-        'id, page_title, meta_description, site_name, logo_url, favicon_url, og_image_url, theme_color, ga4_measurement_id, gsc_verification_content, updated_at'
+        'id, page_title, meta_description, site_name, logo_url, favicon_url, og_image_url, theme_color, ga4_measurement_id, gsc_verification_content, header_scripts, footer_scripts, updated_at'
       )
       .eq('id', 'default')
       .maybeSingle();

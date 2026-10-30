@@ -2377,6 +2377,8 @@ export async function fetchCmsSiteBrandingFromSupabase(): Promise<{
   themeColor: string;
   ga4MeasurementId: string;
   gscVerificationContent: string;
+  headerScripts: string;
+  footerScripts: string;
   updatedAt?: string | null;
 } | null> {
   if (!isSupabaseConfigured()) return null;
@@ -2384,7 +2386,7 @@ export async function fetchCmsSiteBrandingFromSupabase(): Promise<{
     const { data, error } = await supabase
       .from('cms_site_branding')
       .select(
-        'id, page_title, meta_description, site_name, logo_url, favicon_url, og_image_url, theme_color, ga4_measurement_id, gsc_verification_content, updated_at'
+        'id, page_title, meta_description, site_name, logo_url, favicon_url, og_image_url, theme_color, ga4_measurement_id, gsc_verification_content, header_scripts, footer_scripts, updated_at'
       )
       .eq('id', 'default')
       .maybeSingle();
@@ -2405,6 +2407,8 @@ export async function fetchCmsSiteBrandingFromSupabase(): Promise<{
       themeColor: String(row.theme_color || '#09090C'),
       ga4MeasurementId: String(row.ga4_measurement_id || ''),
       gscVerificationContent: String(row.gsc_verification_content || ''),
+      headerScripts: String(row.header_scripts || ''),
+      footerScripts: String(row.footer_scripts || ''),
       updatedAt: (row.updated_at as string | null | undefined) ?? null,
     };
   } catch (err) {
