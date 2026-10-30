@@ -142,10 +142,12 @@ export const AdminPaymentGatewaysPanel: React.FC = () => {
             Active: {activeName || '— none —'}
           </p>
           <p className="text-[10px] text-slate-500 mt-2 max-w-2xl leading-relaxed">
-            In-app card checkout uses PayPal Advanced Card Fields + Smart Buttons (Client ID only on
-            the browser). Enable Advanced Checkout / Card Fields on your PayPal app, keep Mode
-            matching sandbox vs live credentials, and ensure guest/card checkout is allowed for your
-            merchant country. Redirect return URLs remain available as a fallback.
+            Coin store prefers guest debit/credit card (no PayPal login). For in-page card fields,
+            enable <span className="text-slate-300 font-semibold">Advanced Credit and Debit Card
+            Payments (ACDC)</span> on the PayPal app that matches Mode (sandbox vs live). Without
+            ACDC, buyers still get a Card button / guest checkout. The PayPal wallet button always
+            requires login — that path is secondary in the store. Client ID is browser-safe; Client
+            Secret never leaves the server.
           </p>
         </div>
         <button
